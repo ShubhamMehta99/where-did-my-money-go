@@ -8,6 +8,8 @@ const express = require("express");
 const cors    = require("cors");
 const { PlaidApi, PlaidEnvironments, Configuration } = require("plaid");
 const path = require("path");
+const fs = require("fs");
+const TOKENS_FILE = "./tokens.json";
 
 // ── YOUR CREDENTIALS ── (paste from dashboard.plaid.com)
 const PLAID_CLIENT_ID  = process.env.PLAID_CLIENT_ID;
@@ -33,6 +35,19 @@ const plaidConfig = new Configuration({
 
 const plaid = new PlaidApi(plaidConfig);
 
+function loadTokens() {
+  if (fs.existsSync(TOKENS_FILE)) {
+    return JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
+  }
+  return {};
+}
+
+function saveToken(bank, access_token) {
+  const tokens = loadTokens();
+  tokens[bank] = access_token;
+  fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+}
+
 // ── 1. Create a link token (frontend calls this first) ──
 app.post("/create-link-token", async (req, res) => {
   try {
@@ -56,10 +71,8 @@ app.post("/exchange-token", async (req, res) => {
   try {
     const response = await plaid.itemPublicTokenExchange({ public_token });
     const access_token = response.data.access_token;
-    // In production, store this securely (encrypted DB/file).
-    // For personal use, we return it to the frontend to keep in sessionStorage.
-    console.log(`✓ Connected ${bank} — access_token: ${access_token}`);
-    res.json({ access_token });
+    saveToken(bank, access_token);
+    res.json({ access_token, bank });
   } catch (e) {
     console.error("exchange-token error:", e.response?.data || e.message);
     res.status(500).json({ error: e.message });
@@ -91,6 +104,11 @@ app.get("/", (req, res) => {
 // ── Expose safe config to frontend ──
 app.get("/config", (req, res) => {
   res.json({ plaidEnv: PLAID_ENV });
+});
+
+// ── Expose stored tokens to frontend ──
+app.get("/tokens", (req, res) => {
+  res.json(loadTokens());
 });
 
 // ── Password auth ──

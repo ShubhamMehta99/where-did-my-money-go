@@ -607,11 +607,11 @@ function logout() {
   document.getElementById("login-screen").style.display = "flex";
 }
 
-function showApp() {
+async function showApp() {
   document.getElementById("login-screen").style.display = "none";
   document.getElementById("app").style.display = "block";
   updateMonthLabel();
-  loadStoredTokens();
+  await loadStoredTokens();
   loadTransactions();
 }
 
@@ -630,11 +630,27 @@ function changeMonth(dir) {
 }
 
 // ── TOKEN STORAGE ──
-function loadStoredTokens() {
-  tokens.amex = sessionStorage.getItem("tok_amex") || null;
-  tokens.chase = sessionStorage.getItem("tok_chase") || null;
-  if (tokens.amex) setConnected("amex");
-  if (tokens.chase) setConnected("chase");
+async function loadStoredTokens() {
+  try {
+    const res = await fetch(CONFIG.backendUrl + "/tokens");
+    const serverTokens = await res.json();
+
+    // Restore from server-persisted tokens
+    if (serverTokens.amex)  { tokens.amex  = serverTokens.amex;  setConnected("amex");  }
+    if (serverTokens.chase) { tokens.chase = serverTokens.chase; setConnected("chase"); }
+
+    // Sync to sessionStorage as a local cache
+    if (tokens.amex)  sessionStorage.setItem("tok_amex",  tokens.amex);
+    if (tokens.chase) sessionStorage.setItem("tok_chase", tokens.chase);
+
+  } catch(e) {
+    // Fallback to sessionStorage if server unreachable
+    console.warn("Could not fetch tokens from server, using sessionStorage", e);
+    tokens.amex  = sessionStorage.getItem("tok_amex")  || null;
+    tokens.chase = sessionStorage.getItem("tok_chase") || null;
+    if (tokens.amex)  setConnected("amex");
+    if (tokens.chase) setConnected("chase");
+  }
 }
 
 function setConnected(bank) {
