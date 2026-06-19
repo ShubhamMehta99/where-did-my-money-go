@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My Spending Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface2: #1e1e1e;
+    --border: rgba(255,255,255,0.07);
+    --border-hover: rgba(255,255,255,0.15);
+    --text: #f0ece3;
+    --text-muted: #6b6660;
+    --text-dim: #9b958e;
+    --accent: #c8a96e;
+    --accent-dim: rgba(200,169,110,0.12);
+    --amex: #3b7dd8;
+    --amex-dim: rgba(59,125,216,0.12);
+    --chase: #4caf7d;
+    --chase-dim: rgba(76,175,125,0.12);
+    --danger: #c0564a;
+    --font-display: 'DM Serif Display', Georgia, serif;
+    --font-mono: 'DM Mono', 'Courier New', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  /* ── LOGIN SCREEN ── */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  .login-box {
+    width: 100%;
+    max-width: 360px;
+    text-align: center;
+  }
+
+  .login-box h1 {
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 400;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+    margin-bottom: 0.25rem;
+  }
+
+  .login-box p {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-bottom: 2.5rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .login-box input[type="password"] {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 20px;
+    padding: 14px 18px;
+    letter-spacing: 0.3em;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s;
+    margin-bottom: 12px;
+  }
+
+  .login-box input[type="password"]::placeholder {
+    letter-spacing: 0.1em;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .login-box input[type="password"]:focus { border-color: var(--accent); }
+
+  .login-btn {
+    width: 100%;
+    background: var(--accent);
+    border: none;
+    border-radius: 6px;
+    color: #0d0d0d;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 12px;
+    cursor: pointer;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    transition: opacity 0.2s;
+  }
+
+  .login-btn:hover { opacity: 0.85; }
+
+  .login-error {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--danger);
+    min-height: 18px;
+  }
+
+  /* ── MAIN APP ── */
+  #app { display: none; }
+
+  .topbar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 2rem;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+
+  .topbar-left {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .topbar-title {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    color: var(--accent);
+    font-weight: 400;
+  }
+
+  .topbar-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+  .month-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .month-nav button {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .month-nav button:hover { border-color: var(--border-hover); color: var(--text); }
+
+  .month-label {
+    font-size: 12px;
+    color: var(--text-dim);
+    min-width: 110px;
+    text-align: center;
+    letter-spacing: 0.05em;
+  }
+
+  .logout-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    transition: border-color 0.2s, color 0.2s;
+  }
+
+  .logout-btn:hover { border-color: var(--border-hover); color: var(--text); }
+
+  .main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+
+  /* ── SUMMARY CARDS ── */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+
+  .stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .stat-value {
+    font-family: var(--font-display);
+    font-size: 1.9rem;
+    font-weight: 400;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .stat-card.accent-amex { border-color: rgba(59,125,216,0.25); }
+  .stat-card.accent-amex .stat-value { color: var(--amex); }
+  .stat-card.accent-chase { border-color: rgba(76,175,125,0.25); }
+  .stat-card.accent-chase .stat-value { color: var(--chase); }
+
+  /* ── CONNECT SECTION ── */
+  .connect-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+
+  .connect-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .connect-info { flex: 1; }
+
+  .connect-name {
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 3px;
+  }
+
+  .connect-status {
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+
+  .connect-status.connected { color: var(--chase); }
+
+  .connect-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 7px 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    letter-spacing: 0.06em;
+    transition: all 0.2s;
+  }
+
+  .connect-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .connect-btn.connected { border-color: var(--chase); color: var(--chase); cursor: default; }
+  .connect-btn.connected:hover { border-color: var(--chase); color: var(--chase); }
+
+  /* ── CHART ── */
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+
+  .card-title {
+    font-family: var(--font-display);
+    font-size: 1.1rem;
+    font-weight: 400;
+    color: var(--text);
+  }
+
+  .chart-legend {
+    display: flex;
+    gap: 16px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .legend-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 5px;
+  }
+
+  .chart-wrap { position: relative; height: 260px; width: 100%; }
+
+  /* ── TRANSACTIONS ── */
+  .txn-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .txn-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .refresh-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+    letter-spacing: 0.06em;
+    transition: all 0.2s;
+  }
+
+  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .txn-list { max-height: 420px; overflow-y: auto; }
+
+  .txn-row {
+    display: flex;
+    align-items: center;
+    padding: 12px 1.5rem;
+    border-bottom: 1px solid var(--border);
+    gap: 12px;
+    transition: background 0.15s;
+  }
+
+  .txn-row:last-child { border-bottom: none; }
+  .txn-row:hover { background: var(--surface2); }
+
+  .txn-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+
+  .txn-name { flex: 1; font-size: 13px; color: var(--text); }
+
+  .txn-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+  }
+
+  .txn-amount { font-size: 13px; font-weight: 500; color: var(--text); }
+  .txn-cat { font-size: 11px; color: var(--text-muted); }
+
+  .txn-card-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 20px;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-amex { background: var(--amex-dim); color: var(--amex); }
+  .badge-chase { background: var(--chase-dim); color: var(--chase); }
+
+  .empty-state {
+    padding: 3rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 2;
+  }
+
+  .empty-state strong { display: block; font-family: var(--font-display); font-size: 1.3rem; font-weight: 400; color: var(--text-dim); margin-bottom: 0.5rem; }
+
+  /* ── SANDBOX BANNER ── */
+  .sandbox-banner {
+    background: rgba(200,169,110,0.08);
+    border: 1px solid rgba(200,169,110,0.2);
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  @media (max-width: 640px) {
+    .connect-row { grid-template-columns: 1fr; }
+    .topbar { padding: 0 1rem; }
+    .main { padding: 1rem; }
+    .topbar-sub { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div id="login-screen">
+  <div class="login-box">
+    <h1>Spend</h1>
+    <p>Personal Finance Dashboard</p>
+    <input type="password" id="pwd-input" placeholder="Enter your password" autocomplete="current-password">
+    <button class="login-btn" onclick="tryLogin()">Unlock</button>
+    <div class="login-error" id="login-error"></div>
+  </div>
+</div>
+
+<!-- ── APP ── -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="topbar-title">Spend</span>
+      <span class="topbar-sub">Personal Dashboard</span>
+    </div>
+    <div class="topbar-right">
+      <div class="month-nav">
+        <button onclick="changeMonth(-1)">‹</button>
+        <span class="month-label" id="month-label">—</span>
+        <button onclick="changeMonth(1)">›</button>
+      </div>
+      <button class="logout-btn" onclick="logout()">Lock</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="sandbox-banner" id="sandbox-banner">
+      ⚡ Running in Plaid Sandbox mode — uses realistic fake data. Replace credentials to go live.
+    </div>
+
+    <!-- Summary -->
+    <div class="summary-grid">
+      <div class="stat-card">
+        <div class="stat-label">Total spent</div>
+        <div class="stat-value" id="s-total">$0</div>
+      </div>
+      <div class="stat-card accent-amex">
+        <div class="stat-label">American Express</div>
+        <div class="stat-value" id="s-amex">$0</div>
+      </div>
+      <div class="stat-card accent-chase">
+        <div class="stat-label">Chase</div>
+        <div class="stat-value" id="s-chase">$0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Top category</div>
+        <div class="stat-value" style="font-size:1.2rem; padding-top:6px;" id="s-top">—</div>
+      </div>
+    </div>
+
+    <!-- Connect cards -->
+    <div class="connect-row">
+      <div class="connect-card">
+        <div class="txn-icon badge-amex" style="font-size:11px; font-weight:500; letter-spacing:-0.5px;">AMEX</div>
+        <div class="connect-info">
+          <div class="connect-name">American Express</div>
+          <div class="connect-status" id="amex-status">Not connected</div>
+        </div>
+        <button class="connect-btn" id="amex-btn" onclick="connectBank('amex')">Connect</button>
+      </div>
+      <div class="connect-card">
+        <div class="txn-icon badge-chase" style="font-size:11px; font-weight:500; letter-spacing:-0.5px;">JPM</div>
+        <div class="connect-info">
+          <div class="connect-name">Chase</div>
+          <div class="connect-status" id="chase-status">Not connected</div>
+        </div>
+        <button class="connect-btn" id="chase-btn" onclick="connectBank('chase')">Connect</button>
+      </div>
+    </div>
+
+    <!-- Chart -->
+    <div class="chart-card">
+      <div class="card-header">
+        <div class="card-title">Spending by category</div>
+        <div class="chart-legend">
+          <span><span class="legend-dot" style="background:#3b7dd8;"></span>Amex</span>
+          <span><span class="legend-dot" style="background:#4caf7d;"></span>Chase</span>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="cat-chart" role="img" aria-label="Bar chart of spending by category">Category spending chart.</canvas>
+      </div>
+    </div>
+
+    <!-- Transactions -->
+    <div class="txn-card">
+      <div class="txn-header">
+        <div class="card-title">Recent transactions</div>
+        <button class="refresh-btn" onclick="loadTransactions()">↻ Refresh</button>
+      </div>
+      <div class="txn-list" id="txn-list">
+        <div class="empty-state">
+          <strong>No transactions yet</strong>
+          Connect your Amex or Chase account above to see your spending automatically pulled in.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  CONFIGURATION — edit these values
+// ═══════════════════════════════════════════
+const CONFIG = {
+  plaidEnv:      "sandbox",   // change to "development" or "production" when ready
+  backendUrl: "http://localhost:3000",
+};
+// ═══════════════════════════════════════════
+
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const CATEGORY_ICONS = {
+  "Food and Drink":"🍔","Travel":"✈️","Shops":"🛍️","Recreation":"🎮","Healthcare":"💊",
+  "Service":"⚙️","Transfer":"↔️","Payment":"💳","Bank Fees":"🏦","Interest":"📈",
+  "Cash Advance":"💵","Deposit":"📥","Payroll":"💰","Tax":"🧾","default":"📄"
+};
+
+let currentDate = new Date();
+let tokens = { amex: null, chase: null };
+let allTransactions = [];
+let chart = null;
+
+// ── AUTH ──
+async function tryLogin() {
+  const input = document.getElementById("pwd-input").value;
+  try {
+    const res = await fetch(CONFIG.backendUrl + "/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: input })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      sessionStorage.setItem("auth", "1");
+      showApp();
+    } else {
+      const err = document.getElementById("login-error");
+      err.textContent = "Incorrect password.";
+      setTimeout(() => err.textContent = "", 2500);
+      document.getElementById("pwd-input").value = "";
+    }
+  } catch(e) {
+    alert("Backend not reachable. Is the server running?");
+  }
+}
+
+document.getElementById("pwd-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") tryLogin();
+});
+
+function logout() {
+  sessionStorage.removeItem("auth");
+  document.getElementById("app").style.display = "none";
+  document.getElementById("login-screen").style.display = "flex";
+}
+
+function showApp() {
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  updateMonthLabel();
+  loadStoredTokens();
+  loadTransactions();
+}
+
+if (sessionStorage.getItem("auth") === "1") showApp();
+
+// ── MONTH NAV ──
+function updateMonthLabel() {
+  document.getElementById("month-label").textContent =
+    MONTHS[currentDate.getMonth()] + " " + currentDate.getFullYear();
+}
+
+function changeMonth(dir) {
+  currentDate.setMonth(currentDate.getMonth() + dir);
+  updateMonthLabel();
+  renderTransactions();
+}
+
+// ── TOKEN STORAGE ──
+function loadStoredTokens() {
+  tokens.amex = sessionStorage.getItem("tok_amex") || null;
+  tokens.chase = sessionStorage.getItem("tok_chase") || null;
+  if (tokens.amex) setConnected("amex");
+  if (tokens.chase) setConnected("chase");
+}
+
+function setConnected(bank) {
+  document.getElementById(bank + "-status").textContent = "Connected";
+  document.getElementById(bank + "-status").className = "connect-status connected";
+  document.getElementById(bank + "-btn").textContent = "✓ Connected";
+  document.getElementById(bank + "-btn").className = "connect-btn connected";
+}
+
+// ── PLAID CONNECT ──
+async function connectBank(bank) {
+  try {
+    // 1. Get link token from your backend
+    const res = await fetch(CONFIG.backendUrl + "/create-link-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+
+    // 2. Open Plaid Link
+    const handler = Plaid.create({
+      token: data.link_token,
+      onSuccess: async (publicToken) => {
+        // 3. Exchange for access token via your backend
+        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public_token: publicToken, bank })
+        });
+        const exData = await ex.json();
+        tokens[bank] = exData.access_token;
+        sessionStorage.setItem("tok_" + bank, tokens[bank]);
+        setConnected(bank);
+        loadTransactions();
+      },
+      onExit: () => {},
+    });
+    handler.open();
+  } catch(e) {
+    alert("Could not connect — is your backend running? See setup instructions.");
+    console.error(e);
+  }
+}
+
+// ── TRANSACTIONS ──
+async function loadTransactions() {
+  allTransactions = [];
+
+  const now = currentDate;
+  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
+  const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+
+  for (const bank of ["amex", "chase"]) {
+    if (!tokens[bank]) continue;
+    try {
+      const res = await fetch(CONFIG.backendUrl + "/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: tokens[bank], start_date: start, end_date: end, bank })
+      });
+      const data = await res.json();
+      if (data.transactions) {
+        allTransactions.push(...data.transactions.map(t => ({ ...t, _bank: bank })));
+      }
+    } catch(e) { console.error("Error fetching", bank, e); }
+  }
+
+  // Demo data when no tokens connected
+  if (!tokens.amex && !tokens.chase) {
+    allTransactions = getDemoTransactions();
+  }
+
+  renderTransactions();
+}
+
+function renderTransactions() {
+  const m = currentDate.getMonth();
+  const y = currentDate.getFullYear();
+
+  const filtered = allTransactions.filter(t => {
+    const d = new Date(t.date);
+    return d.getMonth() === m && d.getFullYear() === y;
+  });
+
+  const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Update summary
+  let amexTotal = 0, chaseTotal = 0;
+  const catTotals = {};
+  filtered.forEach(t => {
+    const amt = t.amount;
+    if (t._bank === "amex") amexTotal += amt;
+    else chaseTotal += amt;
+    const cat = (t.category && t.category[0]) || "Other";
+    catTotals[cat] = (catTotals[cat] || 0) + amt;
+  });
+
+  document.getElementById("s-amex").textContent  = "$" + amexTotal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  document.getElementById("s-chase").textContent = "$" + chaseTotal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  document.getElementById("s-total").textContent = "$" + (amexTotal + chaseTotal).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  const topCat = Object.entries(catTotals).sort((a,b) => b[1]-a[1])[0];
+  document.getElementById("s-top").textContent = topCat ? topCat[0] : "—";
+
+  // Chart
+  updateChart(catTotals, filtered);
+
+  // Transaction list
+  const list = document.getElementById("txn-list");
+  if (sorted.length === 0) {
+    list.innerHTML = `<div class="empty-state"><strong>No transactions</strong>Connect your accounts above to see live data here.</div>`;
+    return;
+  }
+
+  list.innerHTML = sorted.map(t => {
+    const cat = (t.category && t.category[0]) || "Other";
+    const icon = CATEGORY_ICONS[cat] || CATEGORY_ICONS["default"];
+    const badge = t._bank === "amex"
+      ? `<span class="txn-card-badge badge-amex">AMEX</span>`
+      : `<span class="txn-card-badge badge-chase">CHASE</span>`;
+    return `
+      <div class="txn-row">
+        <div class="txn-icon ${t._bank === 'amex' ? 'badge-amex' : 'badge-chase'}">${icon}</div>
+        <div class="txn-name">${t.merchant_name || t.name}</div>
+        ${badge}
+        <div class="txn-meta">
+          <div class="txn-amount">$${Math.abs(t.amount).toFixed(2)}</div>
+          <div class="txn-cat">${cat}</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function updateChart(catTotals, transactions) {
+  const cats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0, 8);
+  const labels = cats.map(([k]) => k);
+
+  const amexData = labels.map(cat =>
+    transactions.filter(t => t._bank === "amex" && (t.category && t.category[0]) === cat)
+      .reduce((s, t) => s + t.amount, 0)
+  );
+  const chaseData = labels.map(cat =>
+    transactions.filter(t => t._bank === "chase" && (t.category && t.category[0]) === cat)
+      .reduce((s, t) => s + t.amount, 0)
+  );
+
+  if (chart) {
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = amexData;
+    chart.data.datasets[1].data = chaseData;
+    chart.update();
+    return;
+  }
+
+  chart = new Chart(document.getElementById("cat-chart"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "Amex",  data: amexData,  backgroundColor: "rgba(59,125,216,0.7)",  borderRadius: 4, borderSkipped: false },
+        { label: "Chase", data: chaseData, backgroundColor: "rgba(76,175,125,0.7)",  borderRadius: 4, borderSkipped: false },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": $" + ctx.parsed.y.toFixed(2) } }
+      },
+      scales: {
+        x: {
+          stacked: false,
+          ticks: { color: "#6b6660", font: { family: "'DM Mono', monospace", size: 11 } },
+          grid: { display: false }, border: { display: false }
+        },
+        y: {
+          ticks: { color: "#6b6660", font: { family: "'DM Mono', monospace", size: 11 }, callback: v => "$" + v },
+          grid: { color: "rgba(255,255,255,0.05)" }, border: { display: false }
+        }
+      }
+    }
+  });
+}
+
+// ── DEMO DATA (shown before connecting) ──
+function getDemoTransactions() {
+  const y = currentDate.getFullYear(), m = currentDate.getMonth();
+  const d = (day, name, amt, cat, bank) => ({
+    date: `${y}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`,
+    merchant_name: name, name, amount: amt,
+    category: [cat], _bank: bank
+  });
+  return [
+    d(2,"Whole Foods",87.43,"Food and Drink","amex"),
+    d(3,"United Airlines",342.00,"Travel","amex"),
+    d(5,"Amazon",54.99,"Shops","chase"),
+    d(7,"Starbucks",12.50,"Food and Drink","chase"),
+    d(9,"Netflix",15.99,"Service","amex"),
+    d(11,"Chevron",61.20,"Shops","chase"),
+    d(13,"Chipotle",22.75,"Food and Drink","amex"),
+    d(15,"Spotify",9.99,"Service","chase"),
+    d(16,"Target",134.56,"Shops","chase"),
+    d(18,"Delta Airlines",289.00,"Travel","amex"),
+    d(20,"Trader Joe's",73.10,"Food and Drink","amex"),
+    d(22,"Apple",29.99,"Service","chase"),
+    d(24,"Shell",48.30,"Shops","chase"),
+    d(25,"Uber Eats",34.80,"Food and Drink","amex"),
+  ];
+}
+</script>
+</body>
+</html>
