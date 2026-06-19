@@ -15,6 +15,9 @@ const PLAID_SECRET     = process.env.PLAID_SECRET;
 const PLAID_ENV        = process.env.PLAID_ENV;  // sandbox | development | production
 
 const app  = express();
+
+// Auto-open browser when server starts
+const { exec } = require("child_process");
 app.use(cors({ origin: "*" }));   // tighten this in production
 app.use(express.json());
 
@@ -105,5 +108,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\n✓ Spending Tracker backend running on http://localhost:${PORT}`);
   console.log(`  Environment: ${PLAID_ENV}`);
-  console.log(`  Open index.html in your browser to start.\n`);
+  exec(`open http://localhost:${PORT}`); // auto-opens on Mac
 });
