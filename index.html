@@ -630,10 +630,40 @@ const CONFIG = {
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const CATEGORY_ICONS = {
+  // Plaid personal_finance_category primary keys
+  "FOOD_AND_DRINK":            "🍔",
+  "TRANSPORTATION":            "🚗",
+  "TRAVEL":                    "✈️",
+  "GENERAL_MERCHANDISE":       "🛍️",
+  "ENTERTAINMENT":             "🎮",
+  "PERSONAL_CARE":             "💅",
+  "GENERAL_SERVICES":          "⚙️",
+  "HOME_IMPROVEMENT":          "🏠",
+  "RENT_AND_UTILITIES":        "🏠",
+  "INCOME":                    "💰",
+  "LOAN_PAYMENTS":             "💳",
+  "MEDICAL":                   "💊",
+  "TRANSFER_IN":               "📥",
+  "TRANSFER_OUT":              "📤",
+  "BANK_FEES":                 "🏦",
+  "GOVERNMENT_AND_NON_PROFIT": "🏛️",
+  // Legacy keys (demo data)
   "Food and Drink":"🍔","Travel":"✈️","Shops":"🛍️","Recreation":"🎮","Healthcare":"💊",
   "Service":"⚙️","Transfer":"↔️","Payment":"💳","Bank Fees":"🏦","Interest":"📈",
   "Cash Advance":"💵","Deposit":"📥","Payroll":"💰","Tax":"🧾","default":"📄"
 };
+
+function getCat(t) {
+  return t.personal_finance_category?.primary
+      || (t.category && t.category[0])
+      || "Other";
+}
+
+function fmtCat(key) {
+  if (!key || key === "Other") return "Other";
+  if (!/^[A-Z_]+$/.test(key)) return key; // already human-readable (demo data)
+  return key.split("_").map(w => w[0] + w.slice(1).toLowerCase()).join(" ");
+}
 
 let currentDate = new Date();
 let tokens = { amex: null, chase: null };
@@ -831,7 +861,7 @@ function renderTransactions() {
   const catAmex = {}, catChase = {};
   filtered.forEach(t => {
     const amt = t.amount;
-    const cat = (t.category && t.category[0]) || "Other";
+    const cat = getCat(t);
     if (t._bank === "amex") { amexTotal += amt; catAmex[cat]  = (catAmex[cat]  || 0) + amt; }
     else                    { chaseTotal += amt; catChase[cat] = (catChase[cat] || 0) + amt; }
   });
@@ -849,7 +879,7 @@ function renderTransactions() {
   if (viewMode !== "chase") Object.entries(catAmex).forEach(([k,v])  => catView[k] = (catView[k]||0)+v);
   if (viewMode !== "amex")  Object.entries(catChase).forEach(([k,v]) => catView[k] = (catView[k]||0)+v);
   const topCat = Object.entries(catView).sort((a,b) => b[1]-a[1])[0];
-  document.getElementById("s-top").textContent = topCat ? topCat[0] : "—";
+  document.getElementById("s-top").textContent = topCat ? fmtCat(topCat[0]) : "—";
 
   // Chart and category summary always show the full combined breakdown
   const catTotals = {};
@@ -866,7 +896,7 @@ function renderTransactions() {
   }
 
   list.innerHTML = sorted.map(t => {
-    const cat = (t.category && t.category[0]) || "Other";
+    const cat = getCat(t);
     const icon = CATEGORY_ICONS[cat] || CATEGORY_ICONS["default"];
     const badge = t._bank === "amex"
       ? `<span class="txn-card-badge badge-amex">AMEX</span>`
@@ -878,7 +908,7 @@ function renderTransactions() {
         ${badge}
         <div class="txn-meta">
           <div class="txn-amount">$${Math.abs(t.amount).toFixed(2)}</div>
-          <div class="txn-cat">${escapeHtml(cat)}</div>
+          <div class="txn-cat">${escapeHtml(fmtCat(cat))}</div>
         </div>
       </div>`;
   }).join("");
@@ -910,7 +940,7 @@ function renderCategorySummary(catAmex, catChase) {
       <tbody>
         ${rows.map(r => `
           <tr>
-            <td class="cat-name">${escapeHtml(r.cat)}</td>
+            <td class="cat-name">${escapeHtml(fmtCat(r.cat))}</td>
             <td class="cat-total">$${fmt(r.total)}</td>
             <td class="cat-amex">${r.amex  > 0 ? "$" + fmt(r.amex)  : "—"}</td>
             <td class="cat-chase">${r.chase > 0 ? "$" + fmt(r.chase) : "—"}</td>
@@ -945,14 +975,15 @@ function escapeHtml(str) {
 
 function updateChart(catTotals, transactions) {
   const cats = Object.entries(catTotals).sort((a,b) => b[1]-a[1]).slice(0, 8);
-  const labels = cats.map(([k]) => k);
+  const rawKeys = cats.map(([k]) => k);
+  const labels  = rawKeys.map(fmtCat);
 
-  const amexData = labels.map(cat =>
-    transactions.filter(t => t._bank === "amex" && (t.category && t.category[0]) === cat)
+  const amexData = rawKeys.map(cat =>
+    transactions.filter(t => t._bank === "amex" && getCat(t) === cat)
       .reduce((s, t) => s + t.amount, 0)
   );
-  const chaseData = labels.map(cat =>
-    transactions.filter(t => t._bank === "chase" && (t.category && t.category[0]) === cat)
+  const chaseData = rawKeys.map(cat =>
+    transactions.filter(t => t._bank === "chase" && getCat(t) === cat)
       .reduce((s, t) => s + t.amount, 0)
   );
 
