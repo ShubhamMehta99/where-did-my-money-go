@@ -10,6 +10,8 @@ const { PlaidApi, PlaidEnvironments, Configuration } = require("plaid");
 const path = require("path");
 const fs = require("fs");
 const TOKENS_FILE = "./tokens.json";
+const DATA_DIR    = path.join(__dirname, "data");
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 // ── YOUR CREDENTIALS ── (paste from dashboard.plaid.com)
 const PLAID_CLIENT_ID  = process.env.PLAID_CLIENT_ID;
@@ -48,6 +50,26 @@ function saveToken(bank, access_token) {
   fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
 }
 
+function getMonthFile(year, month) {
+  return path.join(DATA_DIR, `transactions-${year}-${String(month).padStart(2, "0")}.json`);
+}
+
+function loadCachedTransactions(year, month) {
+  const file = getMonthFile(year, month);
+  if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, "utf8"));
+  return {};
+}
+
+function saveCachedTransactions(year, month, bank, transactions) {
+  const file = getMonthFile(year, month);
+  const cached = loadCachedTransactions(year, month);
+  // Deduplicate by transaction_id — new data wins
+  const existingMap = new Map((cached[bank] || []).map(t => [t.transaction_id, t]));
+  transactions.forEach(t => existingMap.set(t.transaction_id, t));
+  cached[bank] = Array.from(existingMap.values());
+  fs.writeFileSync(file, JSON.stringify(cached, null, 2));
+}
+
 // ── 1. Create a link token (frontend calls this first) ──
 app.post("/create-link-token", async (req, res) => {
   try {
@@ -81,7 +103,7 @@ app.post("/exchange-token", async (req, res) => {
 
 // ── 3. Fetch transactions for a date range ──
 app.post("/transactions", async (req, res) => {
-  const { access_token, start_date, end_date } = req.body;
+  const { access_token, start_date, end_date, bank } = req.body;
   try {
     const response = await plaid.transactionsGet({
       access_token,
@@ -89,11 +111,24 @@ app.post("/transactions", async (req, res) => {
       end_date,
       options: { count: 500, offset: 0 },
     });
-    res.json({ transactions: response.data.transactions });
+    const transactions = response.data.transactions;
+    // Persist to disk for future loads
+    if (bank && start_date) {
+      const [year, month] = start_date.split("-");
+      saveCachedTransactions(year, month, bank, transactions);
+    }
+    res.json({ transactions });
   } catch (e) {
     console.error("transactions error:", e.response?.data || e.message);
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── 4. Return cached transactions for a given month ──
+app.get("/cached-transactions", (req, res) => {
+  const { year, month } = req.query;
+  if (!year || !month) return res.status(400).json({ error: "year and month required" });
+  res.json(loadCachedTransactions(year, month));
 });
 
 // ── Serve frontend static file ──
