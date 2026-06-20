@@ -433,6 +433,61 @@
     letter-spacing: 0.04em;
   }
 
+  /* ── VIEW TOGGLE ── */
+  .view-toggle {
+    display: flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+
+  .view-toggle button {
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .view-toggle button:last-child { border-right: none; }
+  .view-toggle button.active { background: var(--accent-dim); color: var(--accent); }
+
+  /* ── CATEGORY SUMMARY TABLE ── */
+  .cat-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .cat-table th {
+    text-align: left;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0 12px 10px 0;
+    font-weight: 400;
+  }
+
+  .cat-table th:not(:first-child) { text-align: right; }
+
+  .cat-table td {
+    padding: 8px 12px 8px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .cat-table td:not(:first-child) { text-align: right; }
+  .cat-table td.cat-name  { color: var(--text-dim); }
+  .cat-table td.cat-total { color: var(--text); font-weight: 500; }
+  .cat-table td.cat-amex  { color: var(--amex); }
+  .cat-table td.cat-chase { color: var(--chase); }
+
   /* ── SCROLLBAR ── */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -471,8 +526,11 @@
         <button onclick="changeMonth(-1)">‹</button>
         <span class="month-label" id="month-label">—</span>
         <button onclick="changeMonth(1)">›</button>
-      </div>
-      <button class="logout-btn" onclick="logout()">Lock</button>
+      </div>      <div class="view-toggle">
+        <button id="toggle-combined" class="active" onclick="setViewMode('combined')">All</button>
+        <button id="toggle-amex" onclick="setViewMode('amex')">Amex</button>
+        <button id="toggle-chase" onclick="setViewMode('chase')">Chase</button>
+      </div>      <button class="logout-btn" onclick="logout()">Lock</button>
     </div>
   </div>
 
@@ -535,11 +593,20 @@
       </div>
     </div>
 
+    <!-- Category Summary -->
+    <div class="chart-card" style="margin-bottom:2rem;">
+      <div class="card-header">
+        <div class="card-title">Category summary</div>
+        <button class="refresh-btn" onclick="copyForExcel()">&#8663; Copy for Excel</button>
+      </div>
+      <div id="cat-summary"></div>
+    </div>
+
     <!-- Transactions -->
     <div class="txn-card">
       <div class="txn-header">
         <div class="card-title">Recent transactions</div>
-        <button class="refresh-btn" onclick="loadTransactions()">↻ Refresh</button>
+        <button class="refresh-btn" onclick="loadTransactions(true)">↻ Refresh</button>
       </div>
       <div class="txn-list" id="txn-list">
         <div class="empty-state">
@@ -572,6 +639,7 @@ let currentDate = new Date();
 let tokens = { amex: null, chase: null };
 let allTransactions = [];
 let chart = null;
+let viewMode = "combined"; // "combined" | "amex" | "chase"
 
 // ── AUTH ──
 async function tryLogin() {
@@ -626,7 +694,7 @@ function updateMonthLabel() {
 function changeMonth(dir) {
   currentDate.setMonth(currentDate.getMonth() + dir);
   updateMonthLabel();
-  renderTransactions();
+  loadTransactions();
 }
 
 // ── TOKEN STORAGE ──
@@ -696,13 +764,34 @@ async function connectBank(bank) {
 }
 
 // ── TRANSACTIONS ──
-async function loadTransactions() {
+async function loadTransactions(force = false) {
   allTransactions = [];
 
   const now = currentDate;
-  const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split("T")[0];
-  const end   = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split("T")[0];
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const monthStr = String(month).padStart(2, "0");
+  const today = new Date();
+  const isCurrentMonth = (year === today.getFullYear() && now.getMonth() === today.getMonth());
+  const start = new Date(year, now.getMonth(), 1).toISOString().split("T")[0];
+  const end   = new Date(year, now.getMonth() + 1, 0).toISOString().split("T")[0];
 
+  // For past months, load from disk cache (no Plaid call needed)
+  if (!force && !isCurrentMonth) {
+    try {
+      const res = await fetch(`${CONFIG.backendUrl}/cached-transactions?year=${year}&month=${monthStr}`);
+      const cached = await res.json();
+      const hasData = (cached.amex && cached.amex.length > 0) || (cached.chase && cached.chase.length > 0);
+      if (hasData) {
+        if (cached.amex)  allTransactions.push(...cached.amex.map(t => ({ ...t, _bank: "amex" })));
+        if (cached.chase) allTransactions.push(...cached.chase.map(t => ({ ...t, _bank: "chase" })));
+        renderTransactions();
+        return;
+      }
+    } catch(e) { console.warn("Cache fetch failed, falling back to Plaid", e); }
+  }
+
+  // Fetch from Plaid (current month, forced refresh, or no cache exists)
   for (const bank of ["amex", "chase"]) {
     if (!tokens[bank]) continue;
     try {
@@ -737,26 +826,37 @@ function renderTransactions() {
 
   const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  // Update summary
+  // Compute per-bank and per-category totals
   let amexTotal = 0, chaseTotal = 0;
-  const catTotals = {};
+  const catAmex = {}, catChase = {};
   filtered.forEach(t => {
     const amt = t.amount;
-    if (t._bank === "amex") amexTotal += amt;
-    else chaseTotal += amt;
     const cat = (t.category && t.category[0]) || "Other";
-    catTotals[cat] = (catTotals[cat] || 0) + amt;
+    if (t._bank === "amex") { amexTotal += amt; catAmex[cat]  = (catAmex[cat]  || 0) + amt; }
+    else                    { chaseTotal += amt; catChase[cat] = (catChase[cat] || 0) + amt; }
   });
 
-  document.getElementById("s-amex").textContent  = "$" + amexTotal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  document.getElementById("s-chase").textContent = "$" + chaseTotal.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  document.getElementById("s-total").textContent = "$" + (amexTotal + chaseTotal).toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  // Summary cards — "Total spent" reflects the current view mode
+  const displayTotal = viewMode === "amex" ? amexTotal
+    : viewMode === "chase" ? chaseTotal
+    : amexTotal + chaseTotal;
+  document.getElementById("s-amex").textContent  = "$" + fmt(amexTotal);
+  document.getElementById("s-chase").textContent = "$" + fmt(chaseTotal);
+  document.getElementById("s-total").textContent = "$" + fmt(displayTotal);
 
-  const topCat = Object.entries(catTotals).sort((a,b) => b[1]-a[1])[0];
+  // Top category for the current view mode
+  const catView = {};
+  if (viewMode !== "chase") Object.entries(catAmex).forEach(([k,v])  => catView[k] = (catView[k]||0)+v);
+  if (viewMode !== "amex")  Object.entries(catChase).forEach(([k,v]) => catView[k] = (catView[k]||0)+v);
+  const topCat = Object.entries(catView).sort((a,b) => b[1]-a[1])[0];
   document.getElementById("s-top").textContent = topCat ? topCat[0] : "—";
 
-  // Chart
+  // Chart and category summary always show the full combined breakdown
+  const catTotals = {};
+  Object.entries(catAmex).forEach(([k,v])  => catTotals[k] = (catTotals[k]||0)+v);
+  Object.entries(catChase).forEach(([k,v]) => catTotals[k] = (catTotals[k]||0)+v);
   updateChart(catTotals, filtered);
+  renderCategorySummary(catAmex, catChase);
 
   // Transaction list
   const list = document.getElementById("txn-list");
@@ -774,14 +874,73 @@ function renderTransactions() {
     return `
       <div class="txn-row">
         <div class="txn-icon ${t._bank === 'amex' ? 'badge-amex' : 'badge-chase'}">${icon}</div>
-        <div class="txn-name">${t.merchant_name || t.name}</div>
+        <div class="txn-name">${escapeHtml(t.merchant_name || t.name)}</div>
         ${badge}
         <div class="txn-meta">
           <div class="txn-amount">$${Math.abs(t.amount).toFixed(2)}</div>
-          <div class="txn-cat">${cat}</div>
+          <div class="txn-cat">${escapeHtml(cat)}</div>
         </div>
       </div>`;
   }).join("");
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  document.querySelectorAll(".view-toggle button").forEach(b => b.classList.remove("active"));
+  document.getElementById("toggle-" + mode).classList.add("active");
+  renderTransactions();
+}
+
+function renderCategorySummary(catAmex, catChase) {
+  const allCats = new Set([...Object.keys(catAmex), ...Object.keys(catChase)]);
+  const rows = [...allCats]
+    .map(cat => ({ cat, amex: catAmex[cat]||0, chase: catChase[cat]||0, total: (catAmex[cat]||0)+(catChase[cat]||0) }))
+    .sort((a, b) => b.total - a.total);
+
+  const el = document.getElementById("cat-summary");
+  if (rows.length === 0) {
+    el.innerHTML = `<p style="color:var(--text-muted);font-size:12px;padding:0.75rem 0;">No data for this month.</p>`;
+    return;
+  }
+  el.innerHTML = `
+    <table class="cat-table">
+      <thead><tr>
+        <th>Category</th><th>Total</th><th>Amex</th><th>Chase</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td class="cat-name">${escapeHtml(r.cat)}</td>
+            <td class="cat-total">$${fmt(r.total)}</td>
+            <td class="cat-amex">${r.amex  > 0 ? "$" + fmt(r.amex)  : "—"}</td>
+            <td class="cat-chase">${r.chase > 0 ? "$" + fmt(r.chase) : "—"}</td>
+          </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+function copyForExcel() {
+  const table = document.querySelector("#cat-summary .cat-table");
+  if (!table) return;
+  const rows = [...table.querySelectorAll("tr")].map(tr =>
+    [...tr.querySelectorAll("th,td")].map(cell => cell.textContent.trim()).join("\t")
+  );
+  navigator.clipboard.writeText(rows.join("\n")).then(() => {
+    const btn = document.querySelector('[onclick="copyForExcel()"]');
+    const orig = btn.textContent;
+    btn.textContent = "✓ Copied!";
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+function fmt(n) {
+  return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 function updateChart(catTotals, transactions) {
