@@ -629,39 +629,168 @@ const CONFIG = {
 // ═══════════════════════════════════════════
 
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+// Plaid personal_finance_category.detailed → display label
+const PFC_MAP = {
+  // Food & Drink — split groceries vs restaurants
+  "FOOD_AND_DRINK_GROCERIES":                                    "Groceries",
+  "FOOD_AND_DRINK_SUPERMARKETS_AND_GROCERIES":                   "Groceries",
+  "FOOD_AND_DRINK_OTHER_FOOD_AND_DRINK":                         "Groceries",
+  "FOOD_AND_DRINK_RESTAURANTS":                                  "Restaurants",
+  "FOOD_AND_DRINK_FAST_FOOD":                                    "Restaurants",
+  "FOOD_AND_DRINK_COFFEE":                                       "Restaurants",
+  "FOOD_AND_DRINK_FOOD_DELIVERY_SERVICES":                       "Restaurants",
+  "FOOD_AND_DRINK_VENDING_MACHINES":                             "Restaurants",
+  "FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR":                         "Restaurants",
+  // Transportation — split fuel, rideshare, parking
+  "TRANSPORTATION_GAS_STATIONS":                                 "Fuel",
+  "TRANSPORTATION_TAXIS_AND_RIDE_SHARES":                        "Uber / Lyft",
+  "TRANSPORTATION_PARKING":                                      "Parking",
+  "TRANSPORTATION_PUBLIC_TRANSIT":                               "Transit",
+  "TRANSPORTATION_CAR_RENTAL":                                   "Transportation",
+  "TRANSPORTATION_BOATS":                                        "Transportation",
+  "TRANSPORTATION_OTHER_TRANSPORTATION":                         "Transportation",
+  // Loans — split car payment
+  "LOAN_PAYMENTS_CAR_PAYMENT":                                   "Car Payment",
+  "LOAN_PAYMENTS_STUDENT_LOAN_PAYMENT":                          "Student Loan",
+  "LOAN_PAYMENTS_MORTGAGE_PAYMENT":                              "Mortgage",
+  "LOAN_PAYMENTS_OTHER_PAYMENT":                                 "Loan Payment",
+  // Rent & Utilities — split rent
+  "RENT_AND_UTILITIES_RENT":                                     "Rent",
+  "RENT_AND_UTILITIES_GAS_AND_ELECTRICITY":                      "Utilities",
+  "RENT_AND_UTILITIES_INTERNET_AND_CABLE":                       "Utilities",
+  "RENT_AND_UTILITIES_TELEPHONE":                                "Utilities",
+  "RENT_AND_UTILITIES_WATER":                                    "Utilities",
+  "RENT_AND_UTILITIES_OTHER_UTILITIES":                          "Utilities",
+  // Personal Care & Services
+  "PERSONAL_CARE_GYMS_AND_FITNESS_CENTERS":                      "Gym & Fitness",
+  "PERSONAL_CARE_HAIR_AND_BEAUTY":                               "Personal Care",
+  "PERSONAL_CARE_LAUNDRY_AND_DRY_CLEANING":                      "Personal Care",
+  "PERSONAL_CARE_OTHER_PERSONAL_CARE":                           "Personal Care",
+  "GENERAL_SERVICES_INSURANCE":                                  "Insurance",
+  "GENERAL_SERVICES_AUTOMOTIVE":                                 "Auto Services",
+  "GENERAL_SERVICES_GYMS_AND_FITNESS_CENTERS":                   "Gym & Fitness",
+  "GENERAL_SERVICES_HAIR_AND_BEAUTY":                            "Personal Care",
+  "GENERAL_SERVICES_CHILDCARE":                                  "Services",
+  "GENERAL_SERVICES_FINANCIAL_PLANNING_AND_INVESTMENTS":         "Services",
+  "GENERAL_SERVICES_POSTAGE_AND_SHIPPING":                       "Services",
+  "GENERAL_SERVICES_STORAGE":                                    "Services",
+  "GENERAL_SERVICES_OTHER_GENERAL_SERVICES":                     "Services",
+  // Shopping
+  "GENERAL_MERCHANDISE_CLOTHING_AND_ACCESSORIES":                "Shopping",
+  "GENERAL_MERCHANDISE_DEPARTMENT_STORES":                       "Shopping",
+  "GENERAL_MERCHANDISE_DISCOUNT_STORES":                         "Shopping",
+  "GENERAL_MERCHANDISE_ELECTRONICS":                             "Shopping",
+  "GENERAL_MERCHANDISE_ONLINE_MARKETPLACES":                     "Shopping",
+  "GENERAL_MERCHANDISE_SPORTING_GOODS":                          "Shopping",
+  "GENERAL_MERCHANDISE_SUPERSTORES":                             "Shopping",
+  "GENERAL_MERCHANDISE_BOOKSTORES_AND_NEWSSTANDS":               "Shopping",
+  "GENERAL_MERCHANDISE_CONVENIENCE_STORES":                      "Shopping",
+  "GENERAL_MERCHANDISE_GIFTS_AND_NOVELTIES":                     "Gifts",
+  "GENERAL_MERCHANDISE_PET_SUPPLIES":                            "Shopping",
+  "GENERAL_MERCHANDISE_OFFICE_SUPPLIES":                         "Shopping",
+  "GENERAL_MERCHANDISE_TOBACCO_AND_VAPING":                      "Shopping",
+  "GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE":               "Shopping",
+  // Entertainment
+  "ENTERTAINMENT_CASINOS_AND_GAMBLING":                          "Entertainment",
+  "ENTERTAINMENT_MUSIC_AND_AUDIO":                               "Entertainment",
+  "ENTERTAINMENT_SPORTING_EVENTS_AMUSEMENT_PARKS_AND_MUSEUMS":   "Entertainment",
+  "ENTERTAINMENT_TV_AND_MOVIES":                                 "Entertainment",
+  "ENTERTAINMENT_VIDEO_GAMES":                                   "Entertainment",
+  "ENTERTAINMENT_OTHER_ENTERTAINMENT":                           "Entertainment",
+  // Health
+  "MEDICAL_DENTAL_CARE":                                         "Health",
+  "MEDICAL_EYE_CARE":                                            "Health",
+  "MEDICAL_NURSING_CARE":                                        "Health",
+  "MEDICAL_PHARMACIES_AND_SUPPLEMENTS":                          "Health",
+  "MEDICAL_PRIMARY_CARE":                                        "Health",
+  "MEDICAL_VETERINARY_SERVICES":                                 "Health",
+  "MEDICAL_OTHER_MEDICAL":                                       "Health",
+  // Home
+  "HOME_IMPROVEMENT_FURNITURE":                                  "Home",
+  "HOME_IMPROVEMENT_HARDWARE":                                   "Home",
+  "HOME_IMPROVEMENT_REPAIR_AND_MAINTENANCE":                     "Home",
+  "HOME_IMPROVEMENT_SECURITY":                                   "Home",
+  "HOME_IMPROVEMENT_OTHER_HOME_IMPROVEMENT":                     "Home",
+  // Travel
+  "TRAVEL_FLIGHTS":                                              "Travel",
+  "TRAVEL_HOTELS_AND_MOTELS":                                    "Travel",
+  "TRAVEL_RENTAL_CARS":                                          "Travel",
+  "TRAVEL_OTHER_TRAVEL":                                         "Travel",
+  // Income & Transfers
+  "INCOME_DIVIDENDS":                                            "Income",
+  "INCOME_INTEREST_EARNED":                                      "Income",
+  "INCOME_RETIREMENT_PENSION":                                   "Income",
+  "INCOME_TAX_REFUND":                                           "Income",
+  "INCOME_WAGES":                                                "Income",
+  "INCOME_OTHER_INCOME":                                         "Income",
+  "TRANSFER_IN_ACCOUNT_TRANSFER":                                "Transfer In",
+  "TRANSFER_IN_SAVINGS":                                         "Transfer In",
+  "TRANSFER_IN_OTHER_TRANSFER_IN":                               "Transfer In",
+  "TRANSFER_OUT_ACCOUNT_TRANSFER":                               "Transfer Out",
+  "TRANSFER_OUT_SAVINGS":                                        "Savings",
+  "TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS":                "Investment",
+  "TRANSFER_OUT_OTHER_TRANSFER_OUT":                             "Transfer Out",
+  // Bank & Government
+  "BANK_FEES_ATM_FEES":                                          "Bank Fees",
+  "BANK_FEES_FOREIGN_TRANSACTION_FEES":                          "Bank Fees",
+  "BANK_FEES_INTEREST_CHARGE":                                   "Bank Fees",
+  "BANK_FEES_OVERDRAFT_FEES":                                    "Bank Fees",
+  "BANK_FEES_OTHER_BANK_FEES":                                   "Bank Fees",
+  "GOVERNMENT_AND_NON_PROFIT_DONATIONS":                         "Donations",
+  "GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT":                       "Taxes",
+  "GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS":            "Government",
+  "GOVERNMENT_AND_NON_PROFIT_OTHER_GOVERNMENT_AND_NON_PROFIT":   "Other",
+};
+
 const CATEGORY_ICONS = {
-  // Plaid personal_finance_category primary keys
-  "FOOD_AND_DRINK":            "🍔",
-  "TRANSPORTATION":            "🚗",
-  "TRAVEL":                    "✈️",
-  "GENERAL_MERCHANDISE":       "🛍️",
-  "ENTERTAINMENT":             "🎮",
-  "PERSONAL_CARE":             "💅",
-  "GENERAL_SERVICES":          "⚙️",
-  "HOME_IMPROVEMENT":          "🏠",
-  "RENT_AND_UTILITIES":        "🏠",
-  "INCOME":                    "💰",
-  "LOAN_PAYMENTS":             "💳",
-  "MEDICAL":                   "💊",
-  "TRANSFER_IN":               "📥",
-  "TRANSFER_OUT":              "📤",
-  "BANK_FEES":                 "🏦",
-  "GOVERNMENT_AND_NON_PROFIT": "🏛️",
-  // Legacy keys (demo data)
-  "Food and Drink":"🍔","Travel":"✈️","Shops":"🛍️","Recreation":"🎮","Healthcare":"💊",
-  "Service":"⚙️","Transfer":"↔️","Payment":"💳","Bank Fees":"🏦","Interest":"📈",
-  "Cash Advance":"💵","Deposit":"📥","Payroll":"💰","Tax":"🧾","default":"📄"
+  "Groceries":      "🛒",
+  "Restaurants":    "🍽️",
+  "Fuel":           "⛽",
+  "Uber / Lyft":    "🚕",
+  "Car Payment":    "🚗",
+  "Parking":        "🅿️",
+  "Transit":        "🚇",
+  "Transportation": "🚗",
+  "Rent":           "🏠",
+  "Utilities":      "💡",
+  "Insurance":      "🛡️",
+  "Personal Care":  "💅",
+  "Gym & Fitness":  "💪",
+  "Shopping":       "🛍️",
+  "Gifts":          "🎁",
+  "Entertainment":  "🎮",
+  "Health":         "💊",
+  "Home":           "🏡",
+  "Travel":         "✈️",
+  "Income":         "💰",
+  "Transfer In":    "📥",
+  "Transfer Out":   "📤",
+  "Savings":        "🏦",
+  "Investment":     "📈",
+  "Bank Fees":      "🏦",
+  "Donations":      "❤️",
+  "Taxes":          "🧾",
+  "Student Loan":   "🎓",
+  "Mortgage":       "🏠",
+  "Loan Payment":   "💳",
+  "Auto Services":  "🔧",
+  "Services":       "⚙️",
+  "Government":     "🏛️",
+  "Other":          "📄",
+  "default":        "📄",
 };
 
 function getCat(t) {
-  return t.personal_finance_category?.primary
-      || (t.category && t.category[0])
-      || "Other";
+  const detailed = t.personal_finance_category?.detailed;
+  if (detailed && PFC_MAP[detailed]) return PFC_MAP[detailed];
+  const primary = t.personal_finance_category?.primary;
+  if (primary) return fmtCat(primary);
+  return (t.category && t.category[0]) || "Other";
 }
 
 function fmtCat(key) {
   if (!key || key === "Other") return "Other";
-  if (!/^[A-Z_]+$/.test(key)) return key; // already human-readable (demo data)
+  if (!/^[A-Z_]+$/.test(key)) return key; // already human-readable (demo/legacy data)
   return key.split("_").map(w => w[0] + w.slice(1).toLowerCase()).join(" ");
 }
 
@@ -1035,20 +1164,20 @@ function getDemoTransactions() {
     category: [cat], _bank: bank
   });
   return [
-    d(2,"Whole Foods",87.43,"Food and Drink","amex"),
+    d(2,"Whole Foods",87.43,"Groceries","amex"),
     d(3,"United Airlines",342.00,"Travel","amex"),
-    d(5,"Amazon",54.99,"Shops","chase"),
-    d(7,"Starbucks",12.50,"Food and Drink","chase"),
-    d(9,"Netflix",15.99,"Service","amex"),
-    d(11,"Chevron",61.20,"Shops","chase"),
-    d(13,"Chipotle",22.75,"Food and Drink","amex"),
-    d(15,"Spotify",9.99,"Service","chase"),
-    d(16,"Target",134.56,"Shops","chase"),
+    d(5,"Amazon",54.99,"Shopping","chase"),
+    d(7,"Starbucks",12.50,"Restaurants","chase"),
+    d(9,"Netflix",15.99,"Entertainment","amex"),
+    d(11,"Chevron",61.20,"Fuel","chase"),
+    d(13,"Chipotle",22.75,"Restaurants","amex"),
+    d(15,"Spotify",9.99,"Entertainment","chase"),
+    d(16,"Target",134.56,"Shopping","chase"),
     d(18,"Delta Airlines",289.00,"Travel","amex"),
-    d(20,"Trader Joe's",73.10,"Food and Drink","amex"),
-    d(22,"Apple",29.99,"Service","chase"),
-    d(24,"Shell",48.30,"Shops","chase"),
-    d(25,"Uber Eats",34.80,"Food and Drink","amex"),
+    d(20,"Trader Joe's",73.10,"Groceries","amex"),
+    d(22,"Apple",29.99,"Entertainment","chase"),
+    d(24,"Shell",48.30,"Fuel","chase"),
+    d(25,"Uber Eats",34.80,"Restaurants","amex"),
   ];
 }
 </script>
