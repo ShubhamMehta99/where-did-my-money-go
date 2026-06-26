@@ -488,6 +488,38 @@
   .cat-table td.cat-amex  { color: var(--amex); }
   .cat-table td.cat-chase { color: var(--chase); }
 
+  /* ── CATEGORY FILTER ── */
+  .cat-row { cursor: pointer; }
+  .cat-row:hover td { background: var(--surface2); }
+  .cat-row.cat-selected td { background: var(--accent-dim); }
+  .cat-row.cat-selected td.cat-name { color: var(--accent); }
+
+  .filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(200,169,110,0.25);
+    border-radius: 20px;
+    color: var(--accent);
+    font-size: 11px;
+    padding: 2px 6px 2px 10px;
+    margin-left: 8px;
+    vertical-align: middle;
+    letter-spacing: 0.03em;
+  }
+  .filter-badge-x {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 0;
+    opacity: 0.6;
+  }
+  .filter-badge-x:hover { opacity: 1; }
+
   /* ── SCROLLBAR ── */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -795,6 +827,8 @@ let tokens = { amex: null, chase: null };
 let allTransactions = [];
 let chart = null;
 let viewMode = "combined"; // "combined" | "amex" | "chase"
+let selectedCategory = null;
+let _cachedCatAmex = {}, _cachedCatChase = {}, _cachedSorted = [];
 
 // ── AUTH ──
 async function tryLogin() {
@@ -971,6 +1005,7 @@ async function loadTransactions(force = false) {
 }
 
 function renderTransactions() {
+  selectedCategory = null;
   const m = currentDate.getMonth();
   const y = currentDate.getFullYear();
 
@@ -1011,16 +1046,35 @@ function renderTransactions() {
   Object.entries(catAmex).forEach(([k,v])  => catTotals[k] = (catTotals[k]||0)+v);
   Object.entries(catChase).forEach(([k,v]) => catTotals[k] = (catTotals[k]||0)+v);
   updateChart(catTotals, filtered);
+  _cachedCatAmex = catAmex;
+  _cachedCatChase = catChase;
+  _cachedSorted = sorted;
   renderCategorySummary(catAmex, catChase);
+  renderTxnList(sorted);
+}
 
-  // Transaction list
+function renderTxnList(sorted) {
+  const toShow = selectedCategory
+    ? sorted.filter(t => getCat(t) === selectedCategory)
+    : sorted;
+
+  // Update header
+  const titleEl = document.querySelector(".txn-header .card-title");
+  if (selectedCategory) {
+    titleEl.innerHTML = `Recent transactions <span class="filter-badge">${escapeHtml(fmtCat(selectedCategory))}<button class="filter-badge-x" onclick="clearCategoryFilter()" title="Clear filter">&#x2715;</button></span>`;
+  } else {
+    titleEl.textContent = "Recent transactions";
+  }
+
   const list = document.getElementById("txn-list");
-  if (sorted.length === 0) {
-    list.innerHTML = `<div class="empty-state"><strong>No transactions</strong>Connect your accounts above to see live data here.</div>`;
+  if (toShow.length === 0) {
+    list.innerHTML = selectedCategory
+      ? `<div class="empty-state"><strong>No transactions</strong>No transactions found for "${escapeHtml(fmtCat(selectedCategory))}" this month.</div>`
+      : `<div class="empty-state"><strong>No transactions</strong>Connect your accounts above to see live data here.</div>`;
     return;
   }
 
-  list.innerHTML = sorted.map(t => {
+  list.innerHTML = toShow.map(t => {
     const cat = getCat(t);
     const icon = CATEGORY_ICONS[cat] || CATEGORY_ICONS["default"];
     const badge = t._bank === "amex"
@@ -1037,6 +1091,21 @@ function renderTransactions() {
         </div>
       </div>`;
   }).join("");
+}
+
+function toggleCategoryFilter(cat) {
+  selectedCategory = selectedCategory === cat ? null : cat;
+  renderCategorySummary(_cachedCatAmex, _cachedCatChase);
+  renderTxnList(_cachedSorted);
+  if (selectedCategory) {
+    document.querySelector(".txn-card").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function clearCategoryFilter() {
+  selectedCategory = null;
+  renderCategorySummary(_cachedCatAmex, _cachedCatChase);
+  renderTxnList(_cachedSorted);
 }
 
 function setViewMode(mode) {
@@ -1064,7 +1133,7 @@ function renderCategorySummary(catAmex, catChase) {
       </tr></thead>
       <tbody>
         ${rows.map(r => `
-          <tr>
+          <tr class="cat-row${r.cat === selectedCategory ? ' cat-selected' : ''}" data-cat="${escapeHtml(r.cat)}">
             <td class="cat-name">${escapeHtml(fmtCat(r.cat))}</td>
             <td class="cat-total">$${fmt(r.total)}</td>
             <td class="cat-amex">${r.amex  > 0 ? "$" + fmt(r.amex)  : "—"}</td>
@@ -1072,6 +1141,10 @@ function renderCategorySummary(catAmex, catChase) {
           </tr>`).join("")}
       </tbody>
     </table>`;
+
+  el.querySelectorAll("tr[data-cat]").forEach(tr => {
+    tr.addEventListener("click", () => toggleCategoryFilter(tr.dataset.cat));
+  });
 }
 
 function copyForExcel() {
