@@ -863,18 +863,20 @@ const CONFIG = {
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 // Plaid personal_finance_category.detailed → display label
 const PFC_MAP = {
-  // Food & Drink — split groceries vs restaurants
+  // Food & Drink — split groceries vs dining out
   "FOOD_AND_DRINK_GROCERIES":                                    "Groceries",
   "FOOD_AND_DRINK_SUPERMARKETS_AND_GROCERIES":                   "Groceries",
-  "FOOD_AND_DRINK_OTHER_FOOD_AND_DRINK":                         "Groceries",
-  "FOOD_AND_DRINK_RESTAURANTS":                                  "Restaurants",
-  "FOOD_AND_DRINK_FAST_FOOD":                                    "Restaurants",
-  "FOOD_AND_DRINK_COFFEE":                                       "Restaurants",
-  "FOOD_AND_DRINK_FOOD_DELIVERY_SERVICES":                       "Restaurants",
-  "FOOD_AND_DRINK_VENDING_MACHINES":                             "Restaurants",
-  "FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR":                         "Restaurants",
+  "FOOD_AND_DRINK_RESTAURANTS":                                  "Dining Out",
+  "FOOD_AND_DRINK_RESTAURANT":                                   "Dining Out",
+  "FOOD_AND_DRINK_FAST_FOOD":                                    "Dining Out",
+  "FOOD_AND_DRINK_COFFEE":                                       "Dining Out",
+  "FOOD_AND_DRINK_FOOD_DELIVERY_SERVICES":                       "Dining Out",
+  "FOOD_AND_DRINK_VENDING_MACHINES":                             "Dining Out",
+  "FOOD_AND_DRINK_BEER_WINE_AND_LIQUOR":                         "Dining Out",
+  "FOOD_AND_DRINK_OTHER_FOOD_AND_DRINK":                         "Dining Out",
   // Transportation — split fuel, rideshare, parking
-  "TRANSPORTATION_GAS_STATIONS":                                 "Fuel",
+  "TRANSPORTATION_GAS_STATIONS":                                 "Gas/Transportation",
+  "TRANSPORTATION_GAS":                                          "Gas/Transportation",
   "TRANSPORTATION_TAXIS_AND_RIDE_SHARES":                        "Uber / Lyft",
   "TRANSPORTATION_PARKING":                                      "Parking",
   "TRANSPORTATION_PUBLIC_TRANSIT":                               "Transit",
@@ -976,8 +978,9 @@ const PFC_MAP = {
 
 const CATEGORY_ICONS = {
   "Groceries":      "🛒",
-  "Restaurants":    "🍽️",
+  "Dining Out":     "🍽️",
   "Fuel":           "⛽",
+  "Gas/Transportation": "⛽",
   "Uber / Lyft":    "🚕",
   "Car Payment":    "🚗",
   "Parking":        "🅿️",
@@ -1440,17 +1443,17 @@ function getDemoTransactions() {
     d(2,"Whole Foods",87.43,"Groceries","amex"),
     d(3,"United Airlines",342.00,"Travel","amex"),
     d(5,"Amazon",54.99,"Shopping","chase"),
-    d(7,"Starbucks",12.50,"Restaurants","chase"),
+    d(7,"Starbucks",12.50,"Dining Out","chase"),
     d(9,"Netflix",15.99,"Entertainment","amex"),
     d(11,"Chevron",61.20,"Fuel","chase"),
-    d(13,"Chipotle",22.75,"Restaurants","amex"),
+    d(13,"Chipotle",22.75,"Dining Out","amex"),
     d(15,"Spotify",9.99,"Entertainment","chase"),
     d(16,"Target",134.56,"Shopping","chase"),
     d(18,"Delta Airlines",289.00,"Travel","amex"),
     d(20,"Trader Joe's",73.10,"Groceries","amex"),
     d(22,"Apple",29.99,"Entertainment","chase"),
     d(24,"Shell",48.30,"Fuel","chase"),
-    d(25,"Uber Eats",34.80,"Restaurants","amex"),
+    d(25,"Uber Eats",34.80,"Dining Out","amex"),
   ];
 }
 </script>
