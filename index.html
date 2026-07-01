@@ -642,6 +642,7 @@
   }
 
   .txn-cat { font-size: 11px; color: var(--text-muted); }
+  .txn-date { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
   /* ─── FILTER BADGE ─── */
   .filter-badge {
@@ -1295,6 +1296,7 @@ function renderTxnList(sorted) {
         <div class="txn-meta">
           <div class="txn-amount">$${Math.abs(t.amount).toFixed(2)}</div>
           <div class="txn-cat">${escapeHtml(fmtCat(cat))}</div>
+          <div class="txn-date">${new Date(t.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
         </div>
       </div>`;
   }).join("");
