@@ -861,6 +861,10 @@
         <button class="connect-btn" id="chase-btn" onclick="connectBank('chase')">Connect</button>
       </div>
     </div>
+    <div id="spending-dynamic-accounts" class="connect-row" style="display:none;"></div>
+    <div style="margin-bottom:1.25rem;">
+      <button class="connect-btn" onclick="showAddSpendingModal()" style="height:36px;padding:0 18px;font-size:13px;">+ Add Account</button>
+    </div>
 
     <!-- Spending chart -->
     <div class="card">
@@ -874,6 +878,10 @@
           <div class="legend-item">
             <div class="legend-dot" style="background:var(--chase);"></div>
             Chase
+          </div>
+          <div class="legend-item" id="legend-other" style="display:none;">
+            <div class="legend-dot" style="background:#a78bfa;"></div>
+            Other
           </div>
         </div>
       </div>
@@ -965,6 +973,20 @@
 
   </main>
   </div><!-- end #page-investments -->
+
+  <!-- ── ADD SPENDING ACCOUNT MODAL ── -->
+  <div id="add-spending-overlay" class="modal-overlay" style="display:none;" onclick="handleModalBackdropClick(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-title">Add Spending Account</div>
+      <div class="modal-sub">Name this account, then connect it securely via Plaid.</div>
+      <input id="spending-name-input" class="login-input" style="letter-spacing:normal;text-align:left;" placeholder="e.g. Citi, Discover, Venmo…">
+      <div class="modal-actions">
+        <button class="connect-btn" onclick="hideAddSpendingModal()" style="flex:1;height:38px;">Cancel</button>
+        <button class="login-btn" onclick="linkNewSpendingAccount()" style="flex:2;height:38px;font-size:13px;">Link Account →</button>
+      </div>
+      <div class="modal-error" id="spending-modal-error"></div>
+    </div>
+  </div>
 
   <!-- ── ADD BROKERAGE MODAL ── -->
   <div id="add-brokerage-overlay" class="modal-overlay" style="display:none;" onclick="handleModalBackdropClick(event)">
@@ -1176,9 +1198,10 @@ let allTransactions = [];
 let chart = null;
 let viewMode = "combined"; // "combined" | "amex" | "chase"
 let selectedCategory = null;
-let _cachedCatAmex = {}, _cachedCatChase = {}, _cachedSorted = [];
+let _cachedCatAmex = {}, _cachedCatChase = {}, _cachedCatOther = {}, _cachedSorted = [];
 let currentPage = "spending"; // "spending" | "investments"
 let investmentAccounts = []; // [{ name, token }]
+let spendingAccounts = [];  // [{ name, token }] — dynamic spending accounts beyond amex/chase
 let allInvestmentTransactions = [];
 let investmentBalances = {}; // { bankName: totalBalance }
 
@@ -1265,11 +1288,22 @@ async function loadStoredTokens() {
     }
     renderInvestmentAccounts();
 
+    // Dynamic spending accounts
+    spendingAccounts = [];
+    for (const [bank, type] of Object.entries(accountTypes)) {
+      if (type === "spending" && serverTokens[bank]) {
+        spendingAccounts.push({ name: bank, token: serverTokens[bank] });
+      }
+    }
+    renderSpendingAccounts();
+
     // Sync ALL tokens to sessionStorage (spending + investment)
     if (tokens.amex)  sessionStorage.setItem("tok_amex",  tokens.amex);
     if (tokens.chase) sessionStorage.setItem("tok_chase", tokens.chase);
     sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
     investmentAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
+    sessionStorage.setItem("sp_accounts", JSON.stringify(spendingAccounts.map(a => a.name)));
+    spendingAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
 
   } catch(e) {
     console.warn("Could not fetch tokens from server, using sessionStorage", e);
@@ -1283,6 +1317,12 @@ async function loadStoredTokens() {
       .map(name => ({ name, token: sessionStorage.getItem("tok_" + name) }))
       .filter(a => a.token);
     renderInvestmentAccounts();
+    // Restore dynamic spending accounts from sessionStorage
+    const spNames = JSON.parse(sessionStorage.getItem("sp_accounts") || "[]");
+    spendingAccounts = spNames
+      .map(name => ({ name, token: sessionStorage.getItem("tok_" + name) }))
+      .filter(a => a.token);
+    renderSpendingAccounts();
   }
 }
 
@@ -1346,13 +1386,16 @@ async function loadTransactions(force = false) {
     try {
       const res = await fetch(`${CONFIG.backendUrl}/cached-transactions?year=${year}&month=${monthStr}`);
       const cached = await res.json();
-      const hasData = (cached.amex && cached.amex.length > 0) || (cached.chase && cached.chase.length > 0);
-      if (hasData) {
-        if (cached.amex)  allTransactions.push(...cached.amex.map(t => ({ ...t, _bank: "amex" })));
-        if (cached.chase) allTransactions.push(...cached.chase.map(t => ({ ...t, _bank: "chase" })));
-        renderTransactions();
-        return;
+      let hasData = (cached.amex && cached.amex.length > 0) || (cached.chase && cached.chase.length > 0);
+      if (cached.amex)  allTransactions.push(...cached.amex.map(t => ({ ...t, _bank: "amex" })));
+      if (cached.chase) allTransactions.push(...cached.chase.map(t => ({ ...t, _bank: "chase" })));
+      for (const acc of spendingAccounts) {
+        if (cached[acc.name]?.length > 0) {
+          allTransactions.push(...cached[acc.name].map(t => ({ ...t, _bank: acc.name })));
+          hasData = true;
+        }
       }
+      if (hasData) { renderTransactions(); return; }
     } catch(e) { console.warn("Cache fetch failed, falling back to Plaid", e); }
   }
 
@@ -1371,9 +1414,22 @@ async function loadTransactions(force = false) {
       }
     } catch(e) { console.error("Error fetching", bank, e); }
   }
+  for (const acc of spendingAccounts) {
+    try {
+      const res = await fetch(CONFIG.backendUrl + "/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name })
+      });
+      const data = await res.json();
+      if (data.transactions) {
+        allTransactions.push(...data.transactions.map(t => ({ ...t, _bank: acc.name })));
+      }
+    } catch(e) { console.error("Error fetching", acc.name, e); }
+  }
 
   // Demo data when no tokens connected
-  if (!tokens.amex && !tokens.chase) {
+  if (!tokens.amex && !tokens.chase && spendingAccounts.length === 0) {
     allTransactions = getDemoTransactions();
   }
 
@@ -1396,19 +1452,20 @@ function renderTransactions() {
   const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Compute per-bank and per-category totals
-  let amexTotal = 0, chaseTotal = 0;
-  const catAmex = {}, catChase = {};
+  let amexTotal = 0, chaseTotal = 0, otherTotal = 0;
+  const catAmex = {}, catChase = {}, catOther = {};
   filtered.forEach(t => {
     const amt = t.amount;
     const cat = getCat(t);
-    if (t._bank === "amex") { amexTotal += amt; catAmex[cat]  = (catAmex[cat]  || 0) + amt; }
-    else                    { chaseTotal += amt; catChase[cat] = (catChase[cat] || 0) + amt; }
+    if (t._bank === "amex")       { amexTotal  += amt; catAmex[cat]  = (catAmex[cat]  || 0) + amt; }
+    else if (t._bank === "chase") { chaseTotal += amt; catChase[cat] = (catChase[cat] || 0) + amt; }
+    else                          { otherTotal += amt; catOther[cat] = (catOther[cat] || 0) + amt; }
   });
 
   // Summary cards — "Total spent" reflects the current view mode
   const displayTotal = viewMode === "amex" ? amexTotal
     : viewMode === "chase" ? chaseTotal
-    : amexTotal + chaseTotal;
+    : amexTotal + chaseTotal + otherTotal;
   document.getElementById("s-amex").textContent  = "$" + fmt(amexTotal);
   document.getElementById("s-chase").textContent = "$" + fmt(chaseTotal);
   document.getElementById("s-total").textContent = "$" + fmt(displayTotal);
@@ -1417,6 +1474,7 @@ function renderTransactions() {
   const catView = {};
   if (viewMode !== "chase") Object.entries(catAmex).forEach(([k,v])  => catView[k] = (catView[k]||0)+v);
   if (viewMode !== "amex")  Object.entries(catChase).forEach(([k,v]) => catView[k] = (catView[k]||0)+v);
+  if (viewMode === "combined") Object.entries(catOther).forEach(([k,v]) => catView[k] = (catView[k]||0)+v);
   const topCat = Object.entries(catView).sort((a,b) => b[1]-a[1])[0];
   document.getElementById("s-top").textContent = topCat ? fmtCat(topCat[0]) : "—";
 
@@ -1424,11 +1482,13 @@ function renderTransactions() {
   const catTotals = {};
   Object.entries(catAmex).forEach(([k,v])  => catTotals[k] = (catTotals[k]||0)+v);
   Object.entries(catChase).forEach(([k,v]) => catTotals[k] = (catTotals[k]||0)+v);
+  Object.entries(catOther).forEach(([k,v]) => catTotals[k] = (catTotals[k]||0)+v);
   updateChart(catTotals, filtered);
-  _cachedCatAmex = catAmex;
+  _cachedCatAmex  = catAmex;
   _cachedCatChase = catChase;
+  _cachedCatOther = catOther;
   _cachedSorted = sorted;
-  renderCategorySummary(catAmex, catChase);
+  renderCategorySummary(catAmex, catChase, catOther);
   renderTxnList(sorted);
 }
 
@@ -1458,10 +1518,12 @@ function renderTxnList(sorted) {
     const icon = CATEGORY_ICONS[cat] || CATEGORY_ICONS["default"];
     const badge = t._bank === "amex"
       ? `<span class="txn-card-badge badge-amex">AMEX</span>`
-      : `<span class="txn-card-badge badge-chase">CHASE</span>`;
+      : t._bank === "chase"
+      ? `<span class="txn-card-badge badge-chase">CHASE</span>`
+      : `<span class="txn-card-badge badge-invest">${escapeHtml(t._bank.substring(0,5).toUpperCase())}</span>`;
     return `
       <div class="txn-row">
-        <div class="txn-icon ${t._bank === 'amex' ? 'badge-amex' : 'badge-chase'}">${icon}</div>
+        <div class="txn-icon ${t._bank === 'amex' ? 'badge-amex' : t._bank === 'chase' ? 'badge-chase' : 'badge-invest'}">${icon}</div>
         <div class="txn-name">${escapeHtml(t.merchant_name || t.name)}</div>
         ${badge}
         <div class="txn-meta">
@@ -1475,7 +1537,7 @@ function renderTxnList(sorted) {
 
 function toggleCategoryFilter(cat) {
   selectedCategory = selectedCategory === cat ? null : cat;
-  renderCategorySummary(_cachedCatAmex, _cachedCatChase);
+  renderCategorySummary(_cachedCatAmex, _cachedCatChase, _cachedCatOther);
   renderTxnList(_cachedSorted);
   if (selectedCategory) {
     document.getElementById("txn-wrapper").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1484,7 +1546,7 @@ function toggleCategoryFilter(cat) {
 
 function clearCategoryFilter() {
   selectedCategory = null;
-  renderCategorySummary(_cachedCatAmex, _cachedCatChase);
+  renderCategorySummary(_cachedCatAmex, _cachedCatChase, _cachedCatOther);
   renderTxnList(_cachedSorted);
 }
 
@@ -1495,10 +1557,11 @@ function setViewMode(mode) {
   renderTransactions();
 }
 
-function renderCategorySummary(catAmex, catChase) {
-  const allCats = new Set([...Object.keys(catAmex), ...Object.keys(catChase)]);
+function renderCategorySummary(catAmex, catChase, catOther = {}) {
+  const hasOther = spendingAccounts.length > 0;
+  const allCats = new Set([...Object.keys(catAmex), ...Object.keys(catChase), ...Object.keys(catOther)]);
   const rows = [...allCats]
-    .map(cat => ({ cat, amex: catAmex[cat]||0, chase: catChase[cat]||0, total: (catAmex[cat]||0)+(catChase[cat]||0) }))
+    .map(cat => ({ cat, amex: catAmex[cat]||0, chase: catChase[cat]||0, other: catOther[cat]||0, total: (catAmex[cat]||0)+(catChase[cat]||0)+(catOther[cat]||0) }))
     .sort((a, b) => b.total - a.total);
 
   const el = document.getElementById("cat-summary");
@@ -1509,7 +1572,7 @@ function renderCategorySummary(catAmex, catChase) {
   el.innerHTML = `
     <table class="cat-table">
       <thead><tr>
-        <th>Category</th><th>Total</th><th>Amex</th><th>Chase</th>
+        <th>Category</th><th>Total</th><th>Amex</th><th>Chase</th>${hasOther ? '<th>Other</th>' : ''}
       </tr></thead>
       <tbody>
         ${rows.map(r => `
@@ -1518,6 +1581,7 @@ function renderCategorySummary(catAmex, catChase) {
             <td class="cat-total">$${fmt(r.total)}</td>
             <td class="cat-amex">${r.amex  > 0 ? "$" + fmt(r.amex)  : "—"}</td>
             <td class="cat-chase">${r.chase > 0 ? "$" + fmt(r.chase) : "—"}</td>
+            ${hasOther ? `<td class="cat-chase">${r.other > 0 ? "$" + fmt(r.other) : "—"}</td>` : ''}
           </tr>`).join("")}
       </tbody>
     </table>`;
@@ -1564,11 +1628,16 @@ function updateChart(catTotals, transactions) {
     transactions.filter(t => t._bank === "chase" && getCat(t) === cat)
       .reduce((s, t) => s + t.amount, 0)
   );
+  const otherData = rawKeys.map(cat =>
+    transactions.filter(t => t._bank !== "amex" && t._bank !== "chase" && getCat(t) === cat)
+      .reduce((s, t) => s + t.amount, 0)
+  );
 
   if (chart) {
     chart.data.labels = labels;
     chart.data.datasets[0].data = amexData;
     chart.data.datasets[1].data = chaseData;
+    chart.data.datasets[2].data = otherData;
     chart.update();
     return;
   }
@@ -1580,6 +1649,7 @@ function updateChart(catTotals, transactions) {
       datasets: [
         { label: "Amex",  data: amexData,  backgroundColor: "rgba(111,168,220,0.75)",  borderRadius: 4, borderSkipped: false },
         { label: "Chase", data: chaseData, backgroundColor: "rgba(125,184,152,0.75)",  borderRadius: 4, borderSkipped: false },
+        { label: "Other", data: otherData, backgroundColor: "rgba(167,139,250,0.75)",  borderRadius: 4, borderSkipped: false },
       ]
     },
     options: {
@@ -1646,6 +1716,87 @@ async function refreshInvestmentAccounts() {
   }
 }
 
+// ── SPENDING ACCOUNTS (dynamic) ──
+function renderSpendingAccounts() {
+  const row = document.getElementById("spending-dynamic-accounts");
+  if (!row) return;
+  if (spendingAccounts.length === 0) { row.style.display = "none"; row.innerHTML = ""; return; }
+  row.style.display = "grid";
+  row.innerHTML = spendingAccounts.map(acc => `
+    <div class="connect-card">
+      <div class="bank-badge badge-invest">${escapeHtml(acc.name.substring(0, 4).toUpperCase())}</div>
+      <div class="connect-info">
+        <div class="connect-name">${escapeHtml(formatBankName(acc.name))}</div>
+        <div class="connect-status connected">Connected</div>
+      </div>
+      <button class="connect-btn connected">✓ Linked</button>
+    </div>`).join("");
+  const legendOther = document.getElementById("legend-other");
+  if (legendOther) legendOther.style.display = "";
+}
+
+function showAddSpendingModal() {
+  document.getElementById("add-spending-overlay").style.display = "flex";
+  document.getElementById("spending-name-input").value = "";
+  document.getElementById("spending-modal-error").textContent = "";
+  setTimeout(() => document.getElementById("spending-name-input").focus(), 50);
+}
+
+function hideAddSpendingModal() {
+  document.getElementById("add-spending-overlay").style.display = "none";
+}
+
+document.getElementById("spending-name-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") linkNewSpendingAccount();
+});
+
+async function linkNewSpendingAccount() {
+  const rawName = document.getElementById("spending-name-input").value.trim();
+  const errEl   = document.getElementById("spending-modal-error");
+  errEl.textContent = "";
+  if (!rawName) { errEl.textContent = "Please enter an account name."; return; }
+  const bankKey = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (bankKey === "amex" || bankKey === "chase") {
+    errEl.textContent = "Use the Amex or Chase connect button above for those accounts."; return;
+  }
+  if (spendingAccounts.some(a => a.name === bankKey)) {
+    errEl.textContent = "An account with this name is already connected."; return;
+  }
+  try {
+    const res = await fetch(CONFIG.backendUrl + "/create-link-token", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    const handler = Plaid.create({
+      token: data.link_token,
+      onSuccess: async (publicToken) => {
+        hideAddSpendingModal();
+        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public_token: publicToken, bank: bankKey }),
+        });
+        const exData = await ex.json();
+        await fetch(CONFIG.backendUrl + "/account-types", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bank: bankKey, type: "spending" }),
+        });
+        spendingAccounts.push({ name: bankKey, token: exData.access_token });
+        sessionStorage.setItem("sp_accounts", JSON.stringify(spendingAccounts.map(a => a.name)));
+        sessionStorage.setItem("tok_" + bankKey, exData.access_token);
+        renderSpendingAccounts();
+        loadTransactions(true);
+      },
+      onExit: () => {},
+    });
+    handler.open();
+  } catch(e) {
+    errEl.textContent = "Connection failed. Is the server running?";
+    console.error(e);
+  }
+}
+
 // ── ADD BROKERAGE MODAL ──
 function showAddBrokerageModal() {
   document.getElementById("add-brokerage-overlay").style.display = "flex";
@@ -1660,10 +1811,11 @@ function hideAddBrokerageModal() {
 
 function handleModalBackdropClick(e) {
   if (e.target === document.getElementById("add-brokerage-overlay")) hideAddBrokerageModal();
+  if (e.target === document.getElementById("add-spending-overlay"))  hideAddSpendingModal();
 }
 
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape") hideAddBrokerageModal();
+  if (e.key === "Escape") { hideAddBrokerageModal(); hideAddSpendingModal(); }
 });
 
 document.getElementById("brokerage-name-input").addEventListener("keydown", e => {
