@@ -711,6 +711,68 @@
     .topbar-sep, .topbar-sub { display: none; }
     .summary-grid { grid-template-columns: 1fr 1fr; }
   }
+
+  /* ─── PAGE TABS ─── */
+  .page-tabs {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .page-tab {
+    height: 27px;
+    padding: 0 13px;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    white-space: nowrap;
+  }
+  .page-tab:hover { color: var(--text-dim); }
+  .page-tab.active { background: rgba(255,235,200,0.08); color: var(--text); }
+
+  /* ─── INVEST ACCENT ─── */
+  .badge-invest { background: rgba(167,139,250,0.12); color: #a78bfa; border-color: rgba(167,139,250,0.22); }
+  .bank-badge.badge-invest { background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.22); }
+  .txn-icon.badge-invest { background: rgba(167,139,250,0.12); }
+  .txn-card-badge.badge-invest { background: rgba(167,139,250,0.12); color: #a78bfa; border: 1px solid rgba(167,139,250,0.22); }
+  .stat-card.accent-invest { border-color: rgba(167,139,250,0.22); }
+  .stat-card.accent-invest:hover { border-color: rgba(167,139,250,0.4); }
+  .stat-card.accent-invest .stat-value { color: #a78bfa; }
+
+  /* ─── MODAL ─── */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .modal-box {
+    background: var(--surface-2);
+    border: 1px solid var(--border-hover);
+    border-radius: 16px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 340px;
+  }
+  .modal-title { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .modal-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 1.25rem; line-height: 1.5; }
+  .modal-actions { display: flex; gap: 8px; margin-top: 1rem; }
+  .modal-error { color: var(--danger); font-size: 12px; margin-top: 8px; min-height: 18px; }
 </style>
 </head>
 <body>
@@ -734,7 +796,10 @@
       <div class="brand-mark">S</div>
       <span class="brand-name">Spend</span>
       <div class="topbar-sep"></div>
-      <span class="topbar-sub">Personal Dashboard</span>
+      <div class="page-tabs">
+        <button id="tab-spending" class="page-tab active" onclick="setPage('spending')">Spending</button>
+        <button id="tab-investments" class="page-tab" onclick="setPage('investments')">Investments</button>
+      </div>
     </div>
     <div class="topbar-right">
       <div class="month-nav">
@@ -754,6 +819,7 @@
     </div>
   </header>
 
+  <div id="page-spending">
   <main class="main">
 
     <!-- Summary stats -->
@@ -850,6 +916,70 @@
     </div>
 
   </main>
+  </div><!-- end #page-spending -->
+
+  <!-- ── INVESTMENTS PAGE ── -->
+  <div id="page-investments" style="display:none;">
+  <main class="main">
+
+    <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);">
+      <div class="stat-card accent-invest">
+        <div class="stat-label">Portfolio Value</div>
+        <div class="stat-value" id="inv-portfolio">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Invested This Month</div>
+        <div class="stat-value" id="inv-month">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Year to Date</div>
+        <div class="stat-value" id="inv-ytd">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">All Time</div>
+        <div class="stat-value" id="inv-alltime">—</div>
+      </div>
+    </div>
+
+    <div id="inv-accounts-row" class="connect-row" style="display:none;"></div>
+
+    <div style="margin-bottom:1.25rem;">
+      <button class="connect-btn" onclick="showAddBrokerageModal()" style="height:36px;padding:0 18px;font-size:13px;">+ Add Account</button>
+    </div>
+
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-header">
+        <div class="card-title">Investment Transactions</div>
+        <button class="ghost-btn" onclick="loadInvestmentTransactions(true)">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 8A6.5 6.5 0 1 1 8 14.5"/><path d="M1.5 4v4h4"/></svg>
+          Refresh
+        </button>
+      </div>
+      <div class="txn-list" id="inv-txn-list">
+        <div class="empty-state">
+          <strong>No accounts connected</strong>
+          Add a brokerage account above to start tracking investments.
+        </div>
+      </div>
+    </div>
+
+  </main>
+  </div><!-- end #page-investments -->
+
+  <!-- ── ADD BROKERAGE MODAL ── -->
+  <div id="add-brokerage-overlay" class="modal-overlay" style="display:none;" onclick="handleModalBackdropClick(event)">
+    <div class="modal-box" onclick="event.stopPropagation()">
+      <div class="modal-title">Add Brokerage Account</div>
+      <div class="modal-sub">Name this account, then connect it securely via Plaid.</div>
+      <input id="brokerage-name-input" class="login-input" style="letter-spacing:normal;text-align:left;" placeholder="e.g. Robinhood, Fidelity…">
+      <div class="modal-actions">
+        <button class="connect-btn" onclick="hideAddBrokerageModal()" style="flex:1;height:38px;">Cancel</button>
+        <button class="login-btn" onclick="linkNewBrokerage()" style="flex:2;height:38px;font-size:13px;">Link Account →</button>
+      </div>
+      <div class="modal-error" id="brokerage-modal-error"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -977,6 +1107,16 @@ const PFC_MAP = {
   "GOVERNMENT_AND_NON_PROFIT_OTHER_GOVERNMENT_AND_NON_PROFIT":   "Other",
 };
 
+// Transactions with these detailed categories are excluded from spending totals
+// (credit card payments, inbound transfers — not real expenses)
+const EXCLUDED_DETAILED = new Set([
+  "LOAN_PAYMENTS_CREDIT_CARD_PAYMENT",
+  "TRANSFER_IN_ACCOUNT_TRANSFER",
+  "TRANSFER_IN_SAVINGS",
+  "TRANSFER_IN_OTHER_TRANSFER_IN",
+  "TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS",
+]);
+
 const CATEGORY_ICONS = {
   "Groceries":      "🛒",
   "Dining Out":     "🍽️",
@@ -1037,6 +1177,10 @@ let chart = null;
 let viewMode = "combined"; // "combined" | "amex" | "chase"
 let selectedCategory = null;
 let _cachedCatAmex = {}, _cachedCatChase = {}, _cachedSorted = [];
+let currentPage = "spending"; // "spending" | "investments"
+let investmentAccounts = []; // [{ name, token }]
+let allInvestmentTransactions = [];
+let investmentBalances = {}; // { bankName: totalBalance }
 
 // ── AUTH ──
 async function tryLogin() {
@@ -1091,30 +1235,54 @@ function updateMonthLabel() {
 function changeMonth(dir) {
   currentDate.setMonth(currentDate.getMonth() + dir);
   updateMonthLabel();
-  loadTransactions();
+  if (currentPage === "investments") {
+    loadInvestmentTransactions();
+  } else {
+    loadTransactions();
+  }
 }
 
 // ── TOKEN STORAGE ──
 async function loadStoredTokens() {
   try {
-    const res = await fetch(CONFIG.backendUrl + "/tokens");
-    const serverTokens = await res.json();
+    const [tokRes, typesRes] = await Promise.all([
+      fetch(CONFIG.backendUrl + "/tokens"),
+      fetch(CONFIG.backendUrl + "/account-types"),
+    ]);
+    const serverTokens = await tokRes.json();
+    const accountTypes = await typesRes.json();
 
-    // Restore from server-persisted tokens
+    // Spending accounts
     if (serverTokens.amex)  { tokens.amex  = serverTokens.amex;  setConnected("amex");  }
     if (serverTokens.chase) { tokens.chase = serverTokens.chase; setConnected("chase"); }
 
-    // Sync to sessionStorage as a local cache
+    // Investment accounts
+    investmentAccounts = [];
+    for (const [bank, type] of Object.entries(accountTypes)) {
+      if (type === "investment" && serverTokens[bank]) {
+        investmentAccounts.push({ name: bank, token: serverTokens[bank] });
+      }
+    }
+    renderInvestmentAccounts();
+
+    // Sync ALL tokens to sessionStorage (spending + investment)
     if (tokens.amex)  sessionStorage.setItem("tok_amex",  tokens.amex);
     if (tokens.chase) sessionStorage.setItem("tok_chase", tokens.chase);
+    sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
+    investmentAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
 
   } catch(e) {
-    // Fallback to sessionStorage if server unreachable
     console.warn("Could not fetch tokens from server, using sessionStorage", e);
     tokens.amex  = sessionStorage.getItem("tok_amex")  || null;
     tokens.chase = sessionStorage.getItem("tok_chase") || null;
     if (tokens.amex)  setConnected("amex");
     if (tokens.chase) setConnected("chase");
+    // Restore investment accounts from sessionStorage
+    const invNames = JSON.parse(sessionStorage.getItem("inv_accounts") || "[]");
+    investmentAccounts = invNames
+      .map(name => ({ name, token: sessionStorage.getItem("tok_" + name) }))
+      .filter(a => a.token);
+    renderInvestmentAccounts();
   }
 }
 
@@ -1218,8 +1386,11 @@ function renderTransactions() {
   const y = currentDate.getFullYear();
 
   const filtered = allTransactions.filter(t => {
-    const d = new Date(t.date);
-    return d.getMonth() === m && d.getFullYear() === y;
+    const d = new Date(t.date + 'T00:00:00');
+    if (d.getMonth() !== m || d.getFullYear() !== y) return false;
+    const detailed = t.personal_finance_category?.detailed;
+    if (detailed && EXCLUDED_DETAILED.has(detailed)) return false;
+    return true;
   });
 
   const sorted = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1431,6 +1602,283 @@ function updateChart(catTotals, transactions) {
       }
     }
   });
+}
+
+// ── PAGE SWITCHING ──
+async function setPage(page) {
+  currentPage = page;
+  document.getElementById("page-spending").style.display    = page === "spending"    ? "" : "none";
+  document.getElementById("page-investments").style.display = page === "investments" ? "" : "none";
+  document.getElementById("tab-spending").classList.toggle("active", page === "spending");
+  document.getElementById("tab-investments").classList.toggle("active", page === "investments");
+  document.querySelector(".view-toggle").style.display = page === "spending" ? "" : "none";
+  if (page === "investments") {
+    renderInvestmentAccounts();           // show cached state immediately
+    await refreshInvestmentAccounts();    // re-sync from server (fixes lost-state bug)
+    loadInvestmentTransactions();
+    loadInvestmentTotals();
+    loadInvestmentBalances();
+  }
+}
+
+// Always re-fetch investment accounts from server so tab switches never lose state
+async function refreshInvestmentAccounts() {
+  try {
+    const [tokRes, typesRes] = await Promise.all([
+      fetch(CONFIG.backendUrl + "/tokens"),
+      fetch(CONFIG.backendUrl + "/account-types"),
+    ]);
+    const serverTokens = await tokRes.json();
+    const accountTypes = await typesRes.json();
+    investmentAccounts = [];
+    for (const [bank, type] of Object.entries(accountTypes)) {
+      if (type === "investment" && serverTokens[bank]) {
+        investmentAccounts.push({ name: bank, token: serverTokens[bank] });
+      }
+    }
+    // Sync to sessionStorage so refreshes survive without a server round-trip
+    sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
+    investmentAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
+    renderInvestmentAccounts();
+  } catch(e) {
+    console.warn("Could not refresh investment accounts:", e);
+    // keep whatever is already in investmentAccounts
+  }
+}
+
+// ── ADD BROKERAGE MODAL ──
+function showAddBrokerageModal() {
+  document.getElementById("add-brokerage-overlay").style.display = "flex";
+  document.getElementById("brokerage-name-input").value = "";
+  document.getElementById("brokerage-modal-error").textContent = "";
+  setTimeout(() => document.getElementById("brokerage-name-input").focus(), 50);
+}
+
+function hideAddBrokerageModal() {
+  document.getElementById("add-brokerage-overlay").style.display = "none";
+}
+
+function handleModalBackdropClick(e) {
+  if (e.target === document.getElementById("add-brokerage-overlay")) hideAddBrokerageModal();
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") hideAddBrokerageModal();
+});
+
+document.getElementById("brokerage-name-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") linkNewBrokerage();
+});
+
+async function linkNewBrokerage() {
+  const rawName = document.getElementById("brokerage-name-input").value.trim();
+  const errEl   = document.getElementById("brokerage-modal-error");
+  errEl.textContent = "";
+  if (!rawName) { errEl.textContent = "Please enter an account name."; return; }
+  const bankKey = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  if (investmentAccounts.some(a => a.name === bankKey)) {
+    errEl.textContent = "An account with this name is already connected."; return;
+  }
+  try {
+    const res = await fetch(CONFIG.backendUrl + "/create-link-token", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+    });
+    const data = await res.json();
+    const handler = Plaid.create({
+      token: data.link_token,
+      onSuccess: async (publicToken) => {
+        hideAddBrokerageModal();
+        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public_token: publicToken, bank: bankKey }),
+        });
+        const exData = await ex.json();
+        await fetch(CONFIG.backendUrl + "/account-types", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bank: bankKey, type: "investment" }),
+        });
+        investmentAccounts.push({ name: bankKey, token: exData.access_token });
+        // Persist to sessionStorage immediately so refresh works
+        sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
+        sessionStorage.setItem("tok_" + bankKey, exData.access_token);
+        renderInvestmentAccounts();
+        loadInvestmentTransactions(true);
+        loadInvestmentTotals();
+        loadInvestmentBalances();
+      },
+      onExit: () => {},
+    });
+    handler.open();
+  } catch(e) {
+    errEl.textContent = "Connection failed. Is the server running?";
+    console.error(e);
+  }
+}
+
+// ── INVESTMENT ACCOUNT CARDS ──
+function formatBankName(key) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderInvestmentAccounts() {
+  const row = document.getElementById("inv-accounts-row");
+  if (!row) return;
+  if (investmentAccounts.length === 0) { row.style.display = "none"; row.innerHTML = ""; return; }
+  row.style.display = "grid";
+  row.innerHTML = investmentAccounts.map(acc => {
+    const bal = investmentBalances[acc.name];
+    const statusText = bal != null ? `Connected · $${fmt(bal)}` : "Connected";
+    return `
+      <div class="connect-card">
+        <div class="bank-badge badge-invest">${escapeHtml(acc.name.substring(0, 4).toUpperCase())}</div>
+        <div class="connect-info">
+          <div class="connect-name">${escapeHtml(formatBankName(acc.name))}</div>
+          <div class="connect-status connected">${escapeHtml(statusText)}</div>
+        </div>
+        <button class="connect-btn connected">✓ Linked</button>
+      </div>`;
+  }).join("");
+}
+
+// ── INVESTMENT BALANCES ──
+async function loadInvestmentBalances() {
+  if (investmentAccounts.length === 0) return;
+  let portfolioTotal = 0;
+  const newBalances = {};
+
+  await Promise.all(investmentAccounts.map(async (acc) => {
+    try {
+      const res = await fetch(CONFIG.backendUrl + "/balances", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: acc.token, bank: acc.name }),
+      });
+      const data = await res.json();
+      if (data.accounts) {
+        const total = data.accounts.reduce((s, a) => s + (a.balances.current || 0), 0);
+        newBalances[acc.name] = total;
+        portfolioTotal += total;
+      }
+    } catch(e) { console.warn("Could not fetch balances for", acc.name, e); }
+  }));
+
+  investmentBalances = newBalances;
+  const el = document.getElementById("inv-portfolio");
+  if (el) el.textContent = "$" + fmt(portfolioTotal);
+  renderInvestmentAccounts(); // re-render cards with balance amounts
+}
+
+// ── INVESTMENT TRANSACTIONS ──
+async function loadInvestmentTransactions(force = false) {
+  if (investmentAccounts.length === 0) { renderInvestmentTxnList([]); return; }
+
+  allInvestmentTransactions = [];
+  const now = currentDate;
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const monthStr = String(month).padStart(2, "0");
+  const today = new Date();
+  const isCurrentMonth = year === today.getFullYear() && now.getMonth() === today.getMonth();
+  const start = new Date(year, now.getMonth(), 1).toISOString().split("T")[0];
+  const end   = new Date(year, now.getMonth() + 1, 0).toISOString().split("T")[0];
+
+  if (!force && !isCurrentMonth) {
+    try {
+      const res = await fetch(`${CONFIG.backendUrl}/cached-transactions?year=${year}&month=${monthStr}`);
+      const cached = await res.json();
+      let hasData = false;
+      for (const acc of investmentAccounts) {
+        if (cached[acc.name]?.length > 0) {
+          allInvestmentTransactions.push(...cached[acc.name].map(t => ({ ...t, _bank: acc.name })));
+          hasData = true;
+        }
+      }
+      if (hasData) { renderInvestmentTxnList(allInvestmentTransactions); updateInvestmentMonthTotal(); return; }
+    } catch(e) { console.warn("Investment cache fetch failed", e); }
+  }
+
+  for (const acc of investmentAccounts) {
+    try {
+      const res = await fetch(CONFIG.backendUrl + "/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name }),
+      });
+      const data = await res.json();
+      if (data.transactions) allInvestmentTransactions.push(...data.transactions.map(t => ({ ...t, _bank: acc.name })));
+    } catch(e) { console.error("Error fetching investment txns for", acc.name, e); }
+  }
+
+  renderInvestmentTxnList(allInvestmentTransactions);
+  updateInvestmentMonthTotal();
+}
+
+function updateInvestmentMonthTotal() {
+  const m = currentDate.getMonth(), y = currentDate.getFullYear();
+  // In Plaid, deposits into a brokerage (credits) are amount < 0
+  const filtered = allInvestmentTransactions.filter(t => {
+    const d = new Date(t.date + 'T00:00:00');
+    return d.getMonth() === m && d.getFullYear() === y && t.amount < 0;
+  });
+  const total = filtered.reduce((s, t) => s + Math.abs(t.amount), 0);
+  const el = document.getElementById("inv-month");
+  if (el) el.textContent = "$" + fmt(total);
+}
+
+async function loadInvestmentTotals() {
+  const ytdEl = document.getElementById("inv-ytd");
+  const allEl = document.getElementById("inv-alltime");
+  try {
+    const res = await fetch(CONFIG.backendUrl + "/investment-totals");
+    const data = await res.json();
+    if (ytdEl) ytdEl.textContent = "$" + fmt(data.ytd     || 0);
+    if (allEl) allEl.textContent = "$" + fmt(data.allTime || 0);
+  } catch(e) {
+    console.warn("Could not load investment totals", e);
+    if (ytdEl) ytdEl.textContent = "$0";
+    if (allEl) allEl.textContent = "$0";
+  }
+}
+
+function renderInvestmentTxnList(transactions) {
+  const m = currentDate.getMonth(), y = currentDate.getFullYear();
+  const filtered = transactions
+    .filter(t => { const d = new Date(t.date + 'T00:00:00'); return d.getMonth() === m && d.getFullYear() === y; })
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const list = document.getElementById("inv-txn-list");
+  if (!list) return;
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="empty-state"><strong>${
+      investmentAccounts.length === 0 ? "No accounts connected" : "No transactions this month"
+    }</strong>${
+      investmentAccounts.length === 0
+        ? "Add a brokerage account above to start tracking investments."
+        : "No investment transactions found for this period."
+    }</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(t => {
+    const name      = escapeHtml(t.merchant_name || t.name || "Investment Transaction");
+    const bankLabel = escapeHtml(formatBankName(t._bank));
+    const shortTag  = escapeHtml(t._bank.substring(0, 5).toUpperCase());
+    const dateStr   = new Date(t.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `
+      <div class="txn-row">
+        <div class="txn-icon badge-invest">💼</div>
+        <div class="txn-name">${name}</div>
+        <span class="txn-card-badge badge-invest">${shortTag}</span>
+        <div class="txn-meta">
+          <div class="txn-amount" style="color:#a78bfa;">$${Math.abs(t.amount).toFixed(2)}</div>
+          <div class="txn-cat">${bankLabel}</div>
+          <div class="txn-date">${dateStr}</div>
+        </div>
+      </div>`;
+  }).join("");
 }
 
 // ── DEMO DATA (shown before connecting) ──

@@ -146,6 +146,62 @@ app.get("/tokens", (req, res) => {
   res.json(loadTokens());
 });
 
+// ── Account types (spending vs investment) ──
+app.get("/account-types", (req, res) => {
+  const t = loadTokens();
+  res.json(t._types || {});
+});
+
+app.post("/account-types", (req, res) => {
+  const { bank, type } = req.body;
+  if (!bank || !type) return res.status(400).json({ error: "bank and type required" });
+  const t = loadTokens();
+  t._types = t._types || {};
+  t._types[bank] = type;
+  fs.writeFileSync(TOKENS_FILE, JSON.stringify(t, null, 2));
+  res.json({ ok: true });
+});
+
+// ── Investment totals across all cached months ──
+app.get("/investment-totals", (req, res) => {
+  const t = loadTokens();
+  const invBanks = Object.entries(t._types || {})
+    .filter(([, type]) => type === "investment")
+    .map(([bank]) => bank);
+  if (invBanks.length === 0) return res.json({ allTime: 0, ytd: 0 });
+  const currentYear = new Date().getFullYear();
+  let allTime = 0, ytd = 0;
+  try {
+    const files = fs.readdirSync(DATA_DIR).filter(f => /^transactions-\d{4}-\d{2}\.json$/.test(f));
+    files.forEach(file => {
+      const match = file.match(/transactions-(\d{4})-\d{2}\.json/);
+      if (!match) return;
+      const year = parseInt(match[1]);
+      const data = JSON.parse(fs.readFileSync(path.join(DATA_DIR, file), "utf8"));
+      invBanks.forEach(bank => {
+        // In Plaid, deposits into a brokerage are credits (amount < 0)
+        const total = (data[bank] || []).filter(tx => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
+        allTime += total;
+        if (year === currentYear) ytd += total;
+      });
+    });
+  } catch(e) { console.error("investment-totals error:", e); }
+  res.json({ allTime, ytd });
+});
+
+// ── Fetch current account balances ──
+app.post("/balances", async (req, res) => {
+  const { access_token } = req.body;
+  if (!access_token) return res.status(400).json({ error: "access_token required" });
+  try {
+    const response = await plaid.accountsBalanceGet({ access_token });
+    res.json({ accounts: response.data.accounts });
+  } catch(e) {
+    console.error("balances error:", e.response?.data || e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── Password auth ──
 app.post("/auth", (req, res) => {
   const { password } = req.body;
