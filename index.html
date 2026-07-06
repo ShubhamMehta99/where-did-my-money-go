@@ -1178,8 +1178,19 @@ const CATEGORY_ICONS = {
   "default":        "📄",
 };
 
+// Merchant-specific category overrides: [nameSubstring, detailedCategory] → display category
+const MERCHANT_OVERRIDES = [
+  { merchant: "costco", detailed: "GENERAL_MERCHANDISE_SUPERSTORES", category: "Groceries" },
+];
+
 function getCat(t) {
   const detailed = t.personal_finance_category?.detailed;
+  const merchantLower = (t.merchant_name || t.name || "").toLowerCase();
+  for (const override of MERCHANT_OVERRIDES) {
+    if (merchantLower.includes(override.merchant) && detailed === override.detailed) {
+      return override.category;
+    }
+  }
   if (detailed && PFC_MAP[detailed]) return PFC_MAP[detailed];
   const primary = t.personal_finance_category?.primary;
   if (primary) return fmtCat(primary);
@@ -1444,6 +1455,7 @@ function renderTransactions() {
   const filtered = allTransactions.filter(t => {
     const d = new Date(t.date + 'T00:00:00');
     if (d.getMonth() !== m || d.getFullYear() !== y) return false;
+    if (t.amount < 0) return false; // credits/deposits are not spending
     const detailed = t.personal_finance_category?.detailed;
     if (detailed && EXCLUDED_DETAILED.has(detailed)) return false;
     return true;
