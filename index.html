@@ -642,6 +642,55 @@
   }
 
   .txn-cat { font-size: 11px; color: var(--text-muted); }
+  .txn-cat-btn {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    line-height: inherit;
+  }
+  .txn-cat-btn:hover { color: var(--primary); }
+  .txn-cat-btn.overridden { color: var(--primary); }
+
+  #cat-picker-popup {
+    position: fixed;
+    background: var(--surface-2);
+    border: 1px solid var(--border-hover);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
+    z-index: 2000;
+    padding: 4px;
+    min-width: 168px;
+    max-height: 280px;
+    overflow-y: auto;
+    display: none;
+  }
+  .cat-picker-item {
+    padding: 7px 12px;
+    font-size: 12px;
+    color: var(--text);
+    cursor: pointer;
+    border-radius: 6px;
+    white-space: nowrap;
+  }
+  .cat-picker-item:hover { background: rgba(255,235,200,0.07); }
+  .cat-picker-item.active { color: var(--primary); font-weight: 500; }
+  .cat-picker-reset {
+    padding: 7px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 6px;
+    border-top: 1px solid var(--border);
+    margin-top: 2px;
+  }
+  .cat-picker-reset:hover { color: var(--danger); background: rgba(192,96,74,0.08); }
   .txn-date { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
   /* ─── FILTER BADGE ─── */
@@ -974,6 +1023,9 @@
   </main>
   </div><!-- end #page-investments -->
 
+  <!-- ── CATEGORY PICKER POPUP ── -->
+  <div id="cat-picker-popup"></div>
+
   <!-- ── ADD SPENDING ACCOUNT MODAL ── -->
   <div id="add-spending-overlay" class="modal-overlay" style="display:none;" onclick="handleModalBackdropClick(event)">
     <div class="modal-box" onclick="event.stopPropagation()">
@@ -1184,6 +1236,7 @@ const MERCHANT_OVERRIDES = [
 ];
 
 function getCat(t) {
+  if (t.transaction_id && categoryOverrides[t.transaction_id]) return categoryOverrides[t.transaction_id];
   const detailed = t.personal_finance_category?.detailed;
   const merchantLower = (t.merchant_name || t.name || "").toLowerCase();
   for (const override of MERCHANT_OVERRIDES) {
@@ -1215,6 +1268,17 @@ let investmentAccounts = []; // [{ name, token }]
 let spendingAccounts = [];  // [{ name, token }] — dynamic spending accounts beyond amex/chase
 let allInvestmentTransactions = [];
 let investmentBalances = {}; // { bankName: totalBalance }
+let categoryOverrides = {}; // { transaction_id: "CategoryName" } — manual overrides
+
+// All display categories available in the picker (derived from PFC_MAP + extras)
+const ALL_CATEGORIES = [...new Set([
+  ...Object.values(PFC_MAP),
+  "Groceries", "Dining Out", "Fuel", "Uber / Lyft", "Transit", "Parking",
+  "Entertainment", "Health", "Personal Care", "Gym & Fitness", "Travel",
+  "Shopping", "Gifts", "Home", "Insurance", "Utilities", "Rent",
+  "Income", "Transfer In", "Transfer Out", "Savings", "Investment",
+  "Bank Fees", "Donations", "Taxes", "Government", "Other",
+])].sort();
 
 // ── AUTH ──
 async function tryLogin() {
@@ -1279,10 +1343,12 @@ function changeMonth(dir) {
 // ── TOKEN STORAGE ──
 async function loadStoredTokens() {
   try {
-    const [tokRes, typesRes] = await Promise.all([
+    const [tokRes, typesRes, overridesRes] = await Promise.all([
       fetch(CONFIG.backendUrl + "/tokens"),
       fetch(CONFIG.backendUrl + "/account-types"),
+      fetch(CONFIG.backendUrl + "/category-overrides"),
     ]);
+    categoryOverrides = await overridesRes.json();
     const serverTokens = await tokRes.json();
     const accountTypes = await typesRes.json();
 
@@ -1504,6 +1570,64 @@ function renderTransactions() {
   renderTxnList(sorted);
 }
 
+// ── CATEGORY PICKER ──
+let _pickerTxId = null;
+
+function openCatPicker(event, txId) {
+  event.stopPropagation();
+  const popup = document.getElementById("cat-picker-popup");
+  _pickerTxId = txId;
+  const currentCat = categoryOverrides[txId];
+
+  const items = ALL_CATEGORIES.map(cat => {
+    const isActive = cat === currentCat;
+    return `<div class="cat-picker-item${isActive ? ' active' : ''}" onclick="saveCatOverride('${escapeHtml(txId)}','${escapeHtml(cat)}')">${escapeHtml(cat)}</div>`;
+  }).join("");
+
+  const resetRow = currentCat
+    ? `<div class="cat-picker-reset" onclick="saveCatOverride('${escapeHtml(txId)}', null)">✕ Clear override</div>`
+    : "";
+
+  popup.innerHTML = items + resetRow;
+  popup.style.display = "block";
+
+  // Position near the click, keeping inside viewport
+  const margin = 8;
+  let top = event.clientY + 6;
+  let left = event.clientX - 10;
+  if (left + 180 > window.innerWidth - margin) left = window.innerWidth - 180 - margin;
+  if (top + 300 > window.innerHeight - margin) top = event.clientY - 310;
+  popup.style.top  = top  + "px";
+  popup.style.left = left + "px";
+}
+
+function closeCatPicker() {
+  document.getElementById("cat-picker-popup").style.display = "none";
+  _pickerTxId = null;
+}
+
+async function saveCatOverride(txId, category) {
+  closeCatPicker();
+  if (category) {
+    categoryOverrides[txId] = category;
+  } else {
+    delete categoryOverrides[txId];
+  }
+  try {
+    await fetch(CONFIG.backendUrl + "/category-overrides", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transaction_id: txId, category: category || null }),
+    });
+  } catch(e) { console.warn("Could not save category override", e); }
+  renderTransactions();
+}
+
+document.addEventListener("click", (e) => {
+  const popup = document.getElementById("cat-picker-popup");
+  if (popup && popup.style.display !== "none" && !popup.contains(e.target)) closeCatPicker();
+});
+
 function renderTxnList(sorted) {
   const toShow = selectedCategory
     ? sorted.filter(t => getCat(t) === selectedCategory)
@@ -1533,6 +1657,7 @@ function renderTxnList(sorted) {
       : t._bank === "chase"
       ? `<span class="txn-card-badge badge-chase">CHASE</span>`
       : `<span class="txn-card-badge badge-invest">${escapeHtml(t._bank.substring(0,5).toUpperCase())}</span>`;
+    const isOverridden = !!(t.transaction_id && categoryOverrides[t.transaction_id]);
     return `
       <div class="txn-row">
         <div class="txn-icon ${t._bank === 'amex' ? 'badge-amex' : t._bank === 'chase' ? 'badge-chase' : 'badge-invest'}">${icon}</div>
@@ -1540,7 +1665,7 @@ function renderTxnList(sorted) {
         ${badge}
         <div class="txn-meta">
           <div class="txn-amount">$${Math.abs(t.amount).toFixed(2)}</div>
-          <div class="txn-cat">${escapeHtml(fmtCat(cat))}</div>
+          <button class="txn-cat-btn${isOverridden ? ' overridden' : ''}" onclick="openCatPicker(event,'${escapeHtml(t.transaction_id || '')}')" title="Change category">${escapeHtml(fmtCat(cat))}${isOverridden ? ' ✎' : ''}</button>
           <div class="txn-date">${new Date(t.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
         </div>
       </div>`;

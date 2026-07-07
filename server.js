@@ -202,6 +202,31 @@ app.post("/balances", async (req, res) => {
   }
 });
 
+// ── Category overrides (manual recategorisation) ──
+const OVERRIDES_FILE = path.join(DATA_DIR, "category-overrides.json");
+
+function loadOverrides() {
+  if (fs.existsSync(OVERRIDES_FILE)) return JSON.parse(fs.readFileSync(OVERRIDES_FILE, "utf8"));
+  return {};
+}
+
+app.get("/category-overrides", (req, res) => {
+  res.json(loadOverrides());
+});
+
+app.post("/category-overrides", (req, res) => {
+  const { transaction_id, category } = req.body;
+  if (!transaction_id) return res.status(400).json({ error: "transaction_id required" });
+  const overrides = loadOverrides();
+  if (category) {
+    overrides[transaction_id] = category;
+  } else {
+    delete overrides[transaction_id]; // null/undefined category = clear override
+  }
+  fs.writeFileSync(OVERRIDES_FILE, JSON.stringify(overrides, null, 2));
+  res.json({ ok: true });
+});
+
 // ── Password auth ──
 app.post("/auth", (req, res) => {
   const { password } = req.body;
