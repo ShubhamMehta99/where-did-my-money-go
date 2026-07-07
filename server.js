@@ -66,7 +66,15 @@ function saveCachedTransactions(year, month, bank, transactions) {
   // Deduplicate by transaction_id — new data wins
   const existingMap = new Map((cached[bank] || []).map(t => [t.transaction_id, t]));
   transactions.forEach(t => existingMap.set(t.transaction_id, t));
-  cached[bank] = Array.from(existingMap.values());
+  // Remove pending transactions that have been superseded by a posted transaction.
+  // When Plaid settles a pending tx it creates a new transaction_id and sets
+  // pending_transaction_id to the old pending id — so we drop the old pending entry.
+  const supersededIds = new Set(
+    Array.from(existingMap.values())
+      .map(t => t.pending_transaction_id)
+      .filter(Boolean)
+  );
+  cached[bank] = Array.from(existingMap.values()).filter(t => !supersededIds.has(t.transaction_id));
   fs.writeFileSync(file, JSON.stringify(cached, null, 2));
 }
 
