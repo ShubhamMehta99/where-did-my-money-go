@@ -75,7 +75,9 @@ for (const file of fs.readdirSync(DATA_DIR).filter(name => name.endsWith(".json"
 
 function loadTokens() {
   if (fs.existsSync(TOKENS_FILE)) {
-    return JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
+    const contents = fs.readFileSync(TOKENS_FILE, "utf8").trim();
+    if (!contents) return {};
+    return JSON.parse(contents);
   }
   return {};
 }

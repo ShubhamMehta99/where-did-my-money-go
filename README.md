@@ -7,6 +7,18 @@ A private, local-first personal finance dashboard for tracking spending, savings
 > [!IMPORTANT]
 > Where’d My Money Go? is a self-hosted, single-user project—not a hosted financial service. Start with Plaid Sandbox. Do not expose the server directly to the public internet.
 
+## Preview
+
+> Screenshots use synthetic Plaid Sandbox data—no real financial information is shown.
+
+### Spending overview
+
+<img src="docs/screenshots/SpendingOverview.JPG" alt="Where’d My Money Go dashboard showing connected accounts, monthly spending totals, and a spending-by-category chart using synthetic data" width="100%">
+
+### Categories and transactions
+
+<img src="docs/screenshots/Transactions.JPG" alt="Where’d My Money Go category summary and recent transactions list using synthetic data" width="100%">
+
 ## Features
 
 - Monthly spending totals and category breakdowns
