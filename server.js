@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-//  Spending Tracker — Plaid Backend
+//  Where’d My Money Go? — Plaid Backend
 //  Run with: node server.js
 // ═══════════════════════════════════════════
 
@@ -36,7 +36,7 @@ app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "32kb" }));
 app.use(session({
-  name: "spending.sid",
+  name: "wmmg.sid",
   secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
   resave: false,
   saveUninitialized: false,
@@ -183,7 +183,7 @@ app.get("/auth/status", (req, res) => {
 
 app.post("/auth/logout", (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie("spending.sid");
+    res.clearCookie("wmmg.sid");
     res.json({ ok: true });
   });
 });
@@ -199,7 +199,7 @@ app.post("/create-link-token", async (req, res) => {
   try {
     const response = await plaid.linkTokenCreate({
       user: { client_user_id: "personal-dashboard" },
-      client_name: "My Spending Tracker",
+      client_name: "Where'd My Money Go?",
       products: ["transactions"],
       country_codes: ["US"],
       language: "en",
@@ -221,7 +221,7 @@ app.post("/create-investment-link-token", async (req, res) => {
     if (bank && !access_token) return res.status(404).json({ error: "Account not found." });
     const linkParams = {
       user: { client_user_id: "personal-dashboard" },
-      client_name: "My Spending Tracker",
+      client_name: "Where'd My Money Go?",
       country_codes: ["US"],
       language: "en",
     };
@@ -434,7 +434,7 @@ app.post("/category-overrides", (req, res) => {
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || "127.0.0.1";
 app.listen(PORT, HOST, () => {
-  console.log(`\n✓ Spending Tracker backend running on http://${HOST}:${PORT}`);
+  console.log(`\n✓ Where'd My Money Go? running on http://${HOST}:${PORT}`);
   console.log(`  Environment: ${PLAID_ENV}`);
   if (!process.env.SESSION_SECRET) console.warn("  Warning: SESSION_SECRET is unset; using a temporary cookie-signing key.");
 });

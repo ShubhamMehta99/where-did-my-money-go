@@ -1,11 +1,11 @@
-# Spend
+# Where’d My Money Go?
 
 A private, local-first personal finance dashboard for tracking spending, savings, and investments through [Plaid](https://plaid.com/).
 
-Spend runs on your own computer. It groups transactions by category, compares connected accounts, tracks monthly activity, and displays balances without sending Plaid access tokens to the browser.
+**Where’d My Money Go?** runs on your own computer. It groups transactions by category, compares connected accounts, tracks monthly activity, and displays balances without sending Plaid access tokens to the browser.
 
 > [!IMPORTANT]
-> Spend is a self-hosted, single-user project—not a hosted financial service. Start with Plaid Sandbox. Do not expose the server directly to the public internet.
+> Where’d My Money Go? is a self-hosted, single-user project—not a hosted financial service. Start with Plaid Sandbox. Do not expose the server directly to the public internet.
 
 ## Features
 
@@ -77,7 +77,7 @@ HOST=127.0.0.1
 
 Plaid credentials are available under **Team Settings → Keys** in the Plaid dashboard.
 
-### 3. Start Spend
+### 3. Start Where’d My Money Go?
 
 ```bash
 npm start
@@ -109,7 +109,7 @@ Use `PLAID_ENV=production` only with a Production secret. Restart the server aft
 
 ## Local data and privacy
 
-Spend creates these private local files at runtime:
+Where’d My Money Go? creates these private local files at runtime:
 
 | Path | Contents |
 |---|---|
@@ -167,7 +167,7 @@ Ensure `PLAID_SECRET` belongs to the environment selected by `PLAID_ENV`.
 
 ### `NO_INVESTMENT_ACCOUNTS`
 
-The connected Plaid Item has no brokerage accounts. Spend automatically falls back to regular transactions so savings accounts can still appear under **Savings & Investments**.
+The connected Plaid Item has no brokerage accounts. Where’d My Money Go? automatically falls back to regular transactions so savings accounts can still appear under **Savings & Investments**.
 
 ### Port 3000 is already in use
 

@@ -1,7 +1,7 @@
 {
-  "name": "spending-tracker",
+  "name": "where-did-my-money-go",
   "version": "1.0.0",
-  "description": "A private, local-first spending and investment dashboard powered by Plaid",
+  "description": "Where’d My Money Go? — a private, local-first personal finance dashboard powered by Plaid",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
