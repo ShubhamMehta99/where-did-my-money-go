@@ -4,21 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spend — Personal Finance</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: { sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'] }
-      }
-    }
-  }
-</script>
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js" integrity="sha384-dug+JxfBvklEQdJ4AYuBBAIScUz0bVN73xpy273gcAwHjb3qI0fXmuYNaNfdyYJG" crossorigin="anonymous"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -161,6 +148,8 @@
     color: var(--danger);
     min-height: 18px;
   }
+
+  .warning { color: #eab308; }
 
   /* ─── APP ─── */
   #app { display: none; }
@@ -1049,14 +1038,8 @@
 </div>
 
 <script>
-// ═══════════════════════════════════════════
-//  CONFIGURATION — edit these values
-// ═══════════════════════════════════════════
-const CONFIG = {
-  plaidEnv:      "production",   // change to "development" or "production" when ready
-  backendUrl: "http://localhost:3000",
-};
-// ═══════════════════════════════════════════
+// The frontend and API are served from the same origin.
+const API = "";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 // Plaid personal_finance_category.detailed → display label
 const PFC_MAP = {
@@ -1256,8 +1239,8 @@ let viewMode = "combined"; // "combined" | "amex" | "chase"
 let selectedCategory = null;
 let _cachedCatAmex = {}, _cachedCatChase = {}, _cachedCatOther = {}, _cachedSorted = [];
 let currentPage = "spending"; // "spending" | "investments"
-let investmentAccounts = []; // [{ name, token }]
-let spendingAccounts = [];  // [{ name, token }] — dynamic spending accounts beyond amex/chase
+let investmentAccounts = []; // [{ name }]
+let spendingAccounts = [];  // [{ name }] — dynamic spending accounts beyond amex/chase
 let allInvestmentTransactions = [];
 let investmentBalances = {}; // { bankName: totalBalance }
 let investmentRelinkNeeded = new Set(); // accounts needing re-link for investments product
@@ -1277,14 +1260,13 @@ const ALL_CATEGORIES = [...new Set([
 async function tryLogin() {
   const input = document.getElementById("pwd-input").value;
   try {
-    const res = await fetch(CONFIG.backendUrl + "/auth", {
+    const res = await fetch(API + "/auth", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password: input })
     });
     const data = await res.json();
     if (data.ok) {
-      sessionStorage.setItem("auth", "1");
       showApp();
     } else {
       const err = document.getElementById("login-error");
@@ -1301,8 +1283,8 @@ document.getElementById("pwd-input").addEventListener("keydown", e => {
   if (e.key === "Enter") tryLogin();
 });
 
-function logout() {
-  sessionStorage.removeItem("auth");
+async function logout() {
+  await fetch(API + "/auth/logout", { method: "POST" }).catch(() => {});
   document.getElementById("app").style.display = "none";
   document.getElementById("login-screen").style.display = "flex";
 }
@@ -1315,7 +1297,10 @@ async function showApp() {
   loadTransactions();
 }
 
-if (sessionStorage.getItem("auth") === "1") showApp();
+fetch(API + "/auth/status")
+  .then(res => res.json())
+  .then(data => { if (data.authenticated) showApp(); })
+  .catch(() => {});
 
 // ── MONTH NAV ──
 function updateMonthLabel() {
@@ -1337,9 +1322,9 @@ function changeMonth(dir) {
 async function loadStoredTokens() {
   try {
     const [tokRes, typesRes, overridesRes] = await Promise.all([
-      fetch(CONFIG.backendUrl + "/tokens"),
-      fetch(CONFIG.backendUrl + "/account-types"),
-      fetch(CONFIG.backendUrl + "/category-overrides"),
+      fetch(API + "/tokens"),
+      fetch(API + "/account-types"),
+      fetch(API + "/category-overrides"),
     ]);
     categoryOverrides = await overridesRes.json();
     const serverTokens = await tokRes.json();
@@ -1353,7 +1338,7 @@ async function loadStoredTokens() {
     investmentAccounts = [];
     for (const [bank, type] of Object.entries(accountTypes)) {
       if (type === "investment" && serverTokens[bank]) {
-        investmentAccounts.push({ name: bank, token: serverTokens[bank] });
+        investmentAccounts.push({ name: bank });
       }
     }
     renderInvestmentAccounts();
@@ -1362,37 +1347,13 @@ async function loadStoredTokens() {
     spendingAccounts = [];
     for (const [bank, type] of Object.entries(accountTypes)) {
       if (type === "spending" && serverTokens[bank]) {
-        spendingAccounts.push({ name: bank, token: serverTokens[bank] });
+        spendingAccounts.push({ name: bank });
       }
     }
     renderSpendingAccounts();
 
-    // Sync ALL tokens to sessionStorage (spending + investment)
-    if (tokens.amex)  sessionStorage.setItem("tok_amex",  tokens.amex);
-    if (tokens.chase) sessionStorage.setItem("tok_chase", tokens.chase);
-    sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
-    investmentAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
-    sessionStorage.setItem("sp_accounts", JSON.stringify(spendingAccounts.map(a => a.name)));
-    spendingAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
-
   } catch(e) {
-    console.warn("Could not fetch tokens from server, using sessionStorage", e);
-    tokens.amex  = sessionStorage.getItem("tok_amex")  || null;
-    tokens.chase = sessionStorage.getItem("tok_chase") || null;
-    if (tokens.amex)  setConnected("amex");
-    if (tokens.chase) setConnected("chase");
-    // Restore investment accounts from sessionStorage
-    const invNames = JSON.parse(sessionStorage.getItem("inv_accounts") || "[]");
-    investmentAccounts = invNames
-      .map(name => ({ name, token: sessionStorage.getItem("tok_" + name) }))
-      .filter(a => a.token);
-    renderInvestmentAccounts();
-    // Restore dynamic spending accounts from sessionStorage
-    const spNames = JSON.parse(sessionStorage.getItem("sp_accounts") || "[]");
-    spendingAccounts = spNames
-      .map(name => ({ name, token: sessionStorage.getItem("tok_" + name) }))
-      .filter(a => a.token);
-    renderSpendingAccounts();
+    console.warn("Could not load connected accounts", e);
   }
 }
 
@@ -1407,7 +1368,7 @@ function setConnected(bank) {
 async function connectBank(bank) {
   try {
     // 1. Get link token from your backend
-    const res = await fetch(CONFIG.backendUrl + "/create-link-token", {
+    const res = await fetch(API + "/create-link-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
@@ -1418,14 +1379,13 @@ async function connectBank(bank) {
       token: data.link_token,
       onSuccess: async (publicToken) => {
         // 3. Exchange for access token via your backend
-        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+        const ex = await fetch(API + "/exchange-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ public_token: publicToken, bank })
         });
-        const exData = await ex.json();
-        tokens[bank] = exData.access_token;
-        sessionStorage.setItem("tok_" + bank, tokens[bank]);
+        if (!ex.ok) throw new Error("Token exchange failed");
+        tokens[bank] = true;
         setConnected(bank);
         loadTransactions();
       },
@@ -1454,7 +1414,7 @@ async function loadTransactions(force = false) {
   // For past months, load from disk cache (no Plaid call needed)
   if (!force && !isCurrentMonth) {
     try {
-      const res = await fetch(`${CONFIG.backendUrl}/cached-transactions?year=${year}&month=${monthStr}`);
+      const res = await fetch(`${API}/cached-transactions?year=${year}&month=${monthStr}`);
       const cached = await res.json();
       let hasData = (cached.amex && cached.amex.length > 0) || (cached.chase && cached.chase.length > 0);
       if (cached.amex)  allTransactions.push(...cached.amex.map(t => ({ ...t, _bank: "amex" })));
@@ -1473,10 +1433,10 @@ async function loadTransactions(force = false) {
   for (const bank of ["amex", "chase"]) {
     if (!tokens[bank]) continue;
     try {
-      const res = await fetch(CONFIG.backendUrl + "/transactions", {
+      const res = await fetch(API + "/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: tokens[bank], start_date: start, end_date: end, bank })
+        body: JSON.stringify({ start_date: start, end_date: end, bank })
       });
       const data = await res.json();
       if (data.transactions) {
@@ -1486,10 +1446,10 @@ async function loadTransactions(force = false) {
   }
   for (const acc of spendingAccounts) {
     try {
-      const res = await fetch(CONFIG.backendUrl + "/transactions", {
+      const res = await fetch(API + "/transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name })
+        body: JSON.stringify({ start_date: start, end_date: end, bank: acc.name })
       });
       const data = await res.json();
       if (data.transactions) {
@@ -1607,7 +1567,7 @@ async function saveCatOverride(txId, category) {
     delete categoryOverrides[txId];
   }
   try {
-    await fetch(CONFIG.backendUrl + "/category-overrides", {
+    await fetch(API + "/category-overrides", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transaction_id: txId, category: category || null }),
@@ -1825,20 +1785,17 @@ async function setPage(page) {
 async function refreshInvestmentAccounts() {
   try {
     const [tokRes, typesRes] = await Promise.all([
-      fetch(CONFIG.backendUrl + "/tokens"),
-      fetch(CONFIG.backendUrl + "/account-types"),
+      fetch(API + "/tokens"),
+      fetch(API + "/account-types"),
     ]);
     const serverTokens = await tokRes.json();
     const accountTypes = await typesRes.json();
     investmentAccounts = [];
     for (const [bank, type] of Object.entries(accountTypes)) {
       if (type === "investment" && serverTokens[bank]) {
-        investmentAccounts.push({ name: bank, token: serverTokens[bank] });
+        investmentAccounts.push({ name: bank });
       }
     }
-    // Sync to sessionStorage so refreshes survive without a server round-trip
-    sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
-    investmentAccounts.forEach(a => sessionStorage.setItem("tok_" + a.name, a.token));
     renderInvestmentAccounts();
   } catch(e) {
     console.warn("Could not refresh investment accounts:", e);
@@ -1893,7 +1850,7 @@ async function linkNewSpendingAccount() {
     errEl.textContent = "An account with this name is already connected."; return;
   }
   try {
-    const res = await fetch(CONFIG.backendUrl + "/create-link-token", {
+    const res = await fetch(API + "/create-link-token", {
       method: "POST", headers: { "Content-Type": "application/json" },
     });
     const data = await res.json();
@@ -1901,20 +1858,18 @@ async function linkNewSpendingAccount() {
       token: data.link_token,
       onSuccess: async (publicToken) => {
         hideAddSpendingModal();
-        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+        const ex = await fetch(API + "/exchange-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ public_token: publicToken, bank: bankKey }),
         });
-        const exData = await ex.json();
-        await fetch(CONFIG.backendUrl + "/account-types", {
+        if (!ex.ok) throw new Error("Token exchange failed");
+        await fetch(API + "/account-types", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bank: bankKey, type: "spending" }),
         });
-        spendingAccounts.push({ name: bankKey, token: exData.access_token });
-        sessionStorage.setItem("sp_accounts", JSON.stringify(spendingAccounts.map(a => a.name)));
-        sessionStorage.setItem("tok_" + bankKey, exData.access_token);
+        spendingAccounts.push({ name: bankKey });
         renderSpendingAccounts();
         loadTransactions(true);
       },
@@ -1962,7 +1917,7 @@ async function linkNewBrokerage() {
     errEl.textContent = "An account with this name is already connected."; return;
   }
   try {
-    const res = await fetch(CONFIG.backendUrl + "/create-link-token", {
+    const res = await fetch(API + "/create-investment-link-token", {
       method: "POST", headers: { "Content-Type": "application/json" },
     });
     const data = await res.json();
@@ -1970,21 +1925,18 @@ async function linkNewBrokerage() {
       token: data.link_token,
       onSuccess: async (publicToken) => {
         hideAddBrokerageModal();
-        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+        const ex = await fetch(API + "/exchange-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ public_token: publicToken, bank: bankKey }),
         });
-        const exData = await ex.json();
-        await fetch(CONFIG.backendUrl + "/account-types", {
+        if (!ex.ok) throw new Error("Token exchange failed");
+        await fetch(API + "/account-types", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bank: bankKey, type: "investment" }),
         });
-        investmentAccounts.push({ name: bankKey, token: exData.access_token });
-        // Persist to sessionStorage immediately so refresh works
-        sessionStorage.setItem("inv_accounts", JSON.stringify(investmentAccounts.map(a => a.name)));
-        sessionStorage.setItem("tok_" + bankKey, exData.access_token);
+        investmentAccounts.push({ name: bankKey });
         renderInvestmentAccounts();
         loadInvestmentTransactions(true);
         loadInvestmentTotals();
@@ -2000,33 +1952,21 @@ async function linkNewBrokerage() {
 }
 
 // ── RE-LINK an existing investment account to add the investments product ──
-// Uses Plaid update mode (passes existing access_token) so NO new connection is created.
+// Uses Plaid update mode server-side so no new connection is created.
 async function relinkInvestmentAccount(bankKey) {
   const acc = investmentAccounts.find(a => a.name === bankKey);
   if (!acc) return;
   try {
-    // Pass the existing token — server will open Plaid in update mode
-    const res = await fetch(CONFIG.backendUrl + "/create-investment-link-token", {
+    const res = await fetch(API + "/create-investment-link-token", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ access_token: acc.token }),
+      body: JSON.stringify({ bank: bankKey }),
     });
     const data = await res.json();
     if (!data.link_token) { console.error("Re-link token error:", data); return; }
     const handler = Plaid.create({
       token: data.link_token,
-      onSuccess: async (publicToken) => {
-        // In update mode, exchange returns the same Item's access_token
-        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ public_token: publicToken, bank: bankKey }),
-        });
-        const exData = await ex.json();
-        // Update token in memory and sessionStorage
-        const idx = investmentAccounts.findIndex(a => a.name === bankKey);
-        if (idx >= 0) investmentAccounts[idx].token = exData.access_token;
-        sessionStorage.setItem("tok_" + bankKey, exData.access_token);
+      onSuccess: async () => {
         investmentRelinkNeeded.delete(bankKey);
         renderInvestmentAccounts();
         loadInvestmentTransactions(true);
@@ -2058,7 +1998,7 @@ function renderInvestmentAccounts() {
         <div class="bank-badge badge-invest">${escapeHtml(acc.name.substring(0, 4).toUpperCase())}</div>
         <div class="connect-info">
           <div class="connect-name">${escapeHtml(formatBankName(acc.name))}</div>
-          <div class="connect-status ${needsRelink ? 'text-yellow-500' : 'connected'}">${needsRelink ? '⚠ Re-link required' : escapeHtml(statusText)}</div>
+          <div class="connect-status ${needsRelink ? 'warning' : 'connected'}">${needsRelink ? '⚠ Re-link required' : escapeHtml(statusText)}</div>
         </div>
         ${needsRelink
           ? `<button class="connect-btn" style="background:rgba(200,133,74,0.15);color:#c8854a;border-color:rgba(200,133,74,0.3);" onclick="relinkInvestmentAccount('${escapeHtml(acc.name)}')">Re-link →</button>`
@@ -2076,10 +2016,10 @@ async function loadInvestmentBalances() {
 
   await Promise.all(investmentAccounts.map(async (acc) => {
     try {
-      const res = await fetch(CONFIG.backendUrl + "/balances", {
+      const res = await fetch(API + "/balances", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: acc.token, bank: acc.name }),
+        body: JSON.stringify({ bank: acc.name }),
       });
       const data = await res.json();
       if (data.accounts) {
@@ -2113,7 +2053,7 @@ async function loadInvestmentTransactions(force = false) {
 
   if (!force && !isCurrentMonth) {
     try {
-      const res = await fetch(`${CONFIG.backendUrl}/cached-transactions?year=${year}&month=${monthStr}`);
+      const res = await fetch(`${API}/cached-transactions?year=${year}&month=${monthStr}`);
       const cached = await res.json();
       let hasData = false;
       for (const acc of investmentAccounts) {
@@ -2134,10 +2074,10 @@ async function loadInvestmentTransactions(force = false) {
     // Try investment transactions endpoint first (requires investments product)
     let gotInvData = false;
     try {
-      const res = await fetch(CONFIG.backendUrl + "/investment-transactions", {
+      const res = await fetch(API + "/investment-transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name }),
+        body: JSON.stringify({ start_date: start, end_date: end, bank: acc.name }),
       });
       const data = await res.json();
       if (res.ok && data.transactions?.length > 0) {
@@ -2146,9 +2086,8 @@ async function loadInvestmentTransactions(force = false) {
         gotInvData = true;
       } else if (!res.ok) {
         const errCode = data.error_code;
-        // NO_INVESTMENT_ACCOUNTS: this Item simply has no investment accounts; re-linking won't fix it
-        if (errCode !== 'NO_INVESTMENT_ACCOUNTS') {
-          // e.g. INVALID_PRODUCT — investments product not yet authorized, re-link needed
+        // Only missing product consent can be resolved through Plaid update mode.
+        if (errCode === 'INVALID_PRODUCT') {
           investmentRelinkNeeded.add(acc.name);
         }
       }
@@ -2158,10 +2097,10 @@ async function loadInvestmentTransactions(force = false) {
     if (!gotInvData) {
       // Fall back to regular transactions (deposits, withdrawals, fees)
       try {
-        const res = await fetch(CONFIG.backendUrl + "/transactions", {
+        const res = await fetch(API + "/transactions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name }),
+          body: JSON.stringify({ start_date: start, end_date: end, bank: acc.name }),
         });
         const data = await res.json();
         if (data.transactions?.length > 0) {
@@ -2196,7 +2135,7 @@ async function loadInvestmentTotals() {
   const ytdEl = document.getElementById("inv-ytd");
   const allEl = document.getElementById("inv-alltime");
   try {
-    const res = await fetch(CONFIG.backendUrl + "/investment-totals");
+    const res = await fetch(API + "/investment-totals");
     const data = await res.json();
     if (ytdEl) ytdEl.textContent = "$" + fmt(data.ytd     || 0);
     if (allEl) allEl.textContent = "$" + fmt(data.allTime || 0);

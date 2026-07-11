@@ -5,25 +5,51 @@
 
 require("dotenv").config();  // Load .env variables (PLAID_CLIENT_ID, PLAID_SECRET, etc.)
 const express = require("express");
-const cors    = require("cors");
+const helmet = require("helmet");
+const session = require("express-session");
+const { rateLimit } = require("express-rate-limit");
 const { PlaidApi, PlaidEnvironments, Configuration } = require("plaid");
 const path = require("path");
 const fs = require("fs");
-const TOKENS_FILE = "./tokens.json";
+const crypto = require("crypto");
+const TOKENS_FILE = path.join(__dirname, "tokens.json");
 const DATA_DIR    = path.join(__dirname, "data");
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
 
 // ── YOUR CREDENTIALS ── (paste from dashboard.plaid.com)
 const PLAID_CLIENT_ID  = process.env.PLAID_CLIENT_ID;
 const PLAID_SECRET     = process.env.PLAID_SECRET;
-const PLAID_ENV        = process.env.PLAID_ENV;  // sandbox | development | production
+const PLAID_ENV        = process.env.PLAID_ENV || "sandbox";
+
+if (!PLAID_CLIENT_ID || !PLAID_SECRET || !process.env.APP_PASSWORD) {
+  console.error("Missing required environment variables: PLAID_CLIENT_ID, PLAID_SECRET, and APP_PASSWORD.");
+  process.exit(1);
+}
+if (!PlaidEnvironments[PLAID_ENV]) {
+  console.error(`Invalid PLAID_ENV: ${PLAID_ENV}. Use sandbox, development, or production.`);
+  process.exit(1);
+}
 
 const app  = express();
 
-// Auto-open browser when server starts
-const { exec } = require("child_process");
-app.use(cors({ origin: "*" }));   // tighten this in production
-app.use(express.json());
+app.disable("x-powered-by");
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(express.json({ limit: "32kb" }));
+app.use(session({
+  name: "spending.sid",
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: "strict", secure: false, maxAge: 12 * 60 * 60 * 1000 },
+}));
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { ok: false, error: "Too many login attempts. Try again later." },
+});
 
 const plaidConfig = new Configuration({
   basePath: PlaidEnvironments[PLAID_ENV],
@@ -37,6 +63,16 @@ const plaidConfig = new Configuration({
 
 const plaid = new PlaidApi(plaidConfig);
 
+function writePrivateJson(file, value) {
+  fs.writeFileSync(file, JSON.stringify(value, null, 2), { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+}
+
+if (fs.existsSync(TOKENS_FILE)) fs.chmodSync(TOKENS_FILE, 0o600);
+for (const file of fs.readdirSync(DATA_DIR).filter(name => name.endsWith(".json"))) {
+  fs.chmodSync(path.join(DATA_DIR, file), 0o600);
+}
+
 function loadTokens() {
   if (fs.existsSync(TOKENS_FILE)) {
     return JSON.parse(fs.readFileSync(TOKENS_FILE, "utf8"));
@@ -47,7 +83,57 @@ function loadTokens() {
 function saveToken(bank, access_token) {
   const tokens = loadTokens();
   tokens[bank] = access_token;
-  fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+  writePrivateJson(TOKENS_FILE, tokens);
+}
+
+function validBank(bank) {
+  return typeof bank === "string" && /^[a-z0-9_]{1,64}$/.test(bank);
+}
+
+function getAccessToken(bank) {
+  return validBank(bank) ? loadTokens()[bank] : undefined;
+}
+
+function validDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+async function fetchAllTransactions(access_token, start_date, end_date) {
+  const transactions = [];
+  let offset = 0;
+  let total = 0;
+  do {
+    const response = await plaid.transactionsGet({
+      access_token,
+      start_date,
+      end_date,
+      options: { count: 500, offset },
+    });
+    transactions.push(...response.data.transactions);
+    total = response.data.total_transactions;
+    offset = transactions.length;
+  } while (offset < total);
+  return transactions;
+}
+
+async function fetchAllInvestmentTransactions(access_token, start_date, end_date) {
+  const transactions = [];
+  let offset = 0;
+  let total = 0;
+  do {
+    const response = await plaid.investmentsTransactionsGet({
+      access_token,
+      start_date,
+      end_date,
+      options: { count: 500, offset },
+    });
+    transactions.push(...response.data.investment_transactions);
+    total = response.data.total_investment_transactions;
+    offset = transactions.length;
+  } while (offset < total);
+  return transactions;
 }
 
 function getMonthFile(year, month) {
@@ -75,8 +161,38 @@ function saveCachedTransactions(year, month, bank, transactions) {
       .filter(Boolean)
   );
   cached[bank] = Array.from(existingMap.values()).filter(t => !supersededIds.has(t.transaction_id));
-  fs.writeFileSync(file, JSON.stringify(cached, null, 2));
+  writePrivateJson(file, cached);
 }
+
+// ── Authentication ──
+app.post("/auth", loginLimiter, (req, res) => {
+  const supplied = Buffer.from(String(req.body?.password || ""));
+  const expected = Buffer.from(process.env.APP_PASSWORD);
+  const matches = supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+  if (!matches) return res.status(401).json({ ok: false });
+  req.session.regenerate(err => {
+    if (err) return res.status(500).json({ ok: false, error: "Could not create session." });
+    req.session.authenticated = true;
+    res.json({ ok: true });
+  });
+});
+
+app.get("/auth/status", (req, res) => {
+  res.json({ authenticated: req.session.authenticated === true });
+});
+
+app.post("/auth/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie("spending.sid");
+    res.json({ ok: true });
+  });
+});
+
+app.use((req, res, next) => {
+  if (req.method === "GET" && (req.path === "/" || req.path === "/config")) return next();
+  if (req.session.authenticated === true) return next();
+  res.status(401).json({ error: "Authentication required." });
+});
 
 // ── 1a. Create a link token for spending accounts (transactions product) ──
 app.post("/create-link-token", async (req, res) => {
@@ -100,7 +216,9 @@ app.post("/create-link-token", async (req, res) => {
 // product to the existing Item — does NOT create a new connection, safe when near limits.
 app.post("/create-investment-link-token", async (req, res) => {
   try {
-    const { access_token } = req.body || {};
+    const { bank } = req.body || {};
+    const access_token = bank ? getAccessToken(bank) : undefined;
+    if (bank && !access_token) return res.status(404).json({ error: "Account not found." });
     const linkParams = {
       user: { client_user_id: "personal-dashboard" },
       client_name: "My Spending Tracker",
@@ -127,11 +245,12 @@ app.post("/create-investment-link-token", async (req, res) => {
 // ── 2. Exchange public token for access token ──
 app.post("/exchange-token", async (req, res) => {
   const { public_token, bank } = req.body;
+  if (!public_token || !validBank(bank)) return res.status(400).json({ error: "Valid public_token and bank are required." });
   try {
     const response = await plaid.itemPublicTokenExchange({ public_token });
     const access_token = response.data.access_token;
     saveToken(bank, access_token);
-    res.json({ access_token, bank });
+    res.json({ bank });
   } catch (e) {
     console.error("exchange-token error:", e.response?.data || e.message);
     res.status(500).json({ error: e.message });
@@ -140,15 +259,14 @@ app.post("/exchange-token", async (req, res) => {
 
 // ── 3. Fetch transactions for a date range ──
 app.post("/transactions", async (req, res) => {
-  const { access_token, start_date, end_date, bank } = req.body;
+  const { start_date, end_date, bank } = req.body;
+  const access_token = getAccessToken(bank);
+  if (!access_token) return res.status(404).json({ error: "Account not found." });
+  if (!validDate(start_date) || !validDate(end_date) || start_date > end_date) {
+    return res.status(400).json({ error: "Valid start_date and end_date are required." });
+  }
   try {
-    const response = await plaid.transactionsGet({
-      access_token,
-      start_date,
-      end_date,
-      options: { count: 500, offset: 0 },
-    });
-    const transactions = response.data.transactions;
+    const transactions = await fetchAllTransactions(access_token, start_date, end_date);
     // Persist to disk for future loads
     if (bank && start_date) {
       const [year, month] = start_date.split("-");
@@ -163,16 +281,14 @@ app.post("/transactions", async (req, res) => {
 
 // ── 4. Fetch investment transactions (buy/sell/dividend) from brokerage accounts ──
 app.post("/investment-transactions", async (req, res) => {
-  const { access_token, start_date, end_date, bank } = req.body;
-  if (!access_token) return res.status(400).json({ error: "access_token required" });
+  const { start_date, end_date, bank } = req.body;
+  const access_token = getAccessToken(bank);
+  if (!access_token) return res.status(404).json({ error: "Account not found." });
+  if (!validDate(start_date) || !validDate(end_date) || start_date > end_date) {
+    return res.status(400).json({ error: "Valid start_date and end_date are required." });
+  }
   try {
-    const response = await plaid.investmentsTransactionsGet({
-      access_token,
-      start_date,
-      end_date,
-      options: { count: 500, offset: 0 },
-    });
-    const transactions = response.data.investment_transactions;
+    const transactions = await fetchAllInvestmentTransactions(access_token, start_date, end_date);
     if (bank && start_date) {
       const [year, month] = start_date.split("-");
       const file = getMonthFile(year, month);
@@ -181,7 +297,7 @@ app.post("/investment-transactions", async (req, res) => {
       const existingMap = new Map((cached[invKey] || []).map(t => [t.investment_transaction_id, t]));
       transactions.forEach(t => existingMap.set(t.investment_transaction_id, t));
       cached[invKey] = Array.from(existingMap.values());
-      fs.writeFileSync(file, JSON.stringify(cached, null, 2));
+      writePrivateJson(file, cached);
     }
     res.json({ transactions });
   } catch (e) {
@@ -190,17 +306,20 @@ app.post("/investment-transactions", async (req, res) => {
     // NO_INVESTMENT_ACCOUNTS is expected when an Item has no brokerage accounts — not a real error
     if (errCode === "NO_INVESTMENT_ACCOUNTS") {
       console.warn(`investment-transactions: ${bank || "unknown"} has no investment accounts, skipping.`);
+      return res.json({ transactions: [], unavailable_reason: errCode });
     } else {
       console.error("investment-transactions error:", errData || e.message);
     }
-    res.status(500).json({ error: e.message, error_code: errCode });
+    res.status(502).json({ error: "Plaid could not retrieve investment transactions.", error_code: errCode });
   }
 });
 
 // ── 5. Return cached transactions for a given month ──
 app.get("/cached-transactions", (req, res) => {
   const { year, month } = req.query;
-  if (!year || !month) return res.status(400).json({ error: "year and month required" });
+  if (!/^\d{4}$/.test(year || "") || !/^(0[1-9]|1[0-2])$/.test(month || "")) {
+    return res.status(400).json({ error: "Valid year and month required." });
+  }
   res.json(loadCachedTransactions(year, month));
 });
 
@@ -214,9 +333,10 @@ app.get("/config", (req, res) => {
   res.json({ plaidEnv: PLAID_ENV });
 });
 
-// ── Expose stored tokens to frontend ──
+// ── Expose connected account names only; access tokens never leave the server ──
 app.get("/tokens", (req, res) => {
-  res.json(loadTokens());
+  const tokens = loadTokens();
+  res.json(Object.fromEntries(Object.keys(tokens).filter(key => key !== "_types").map(key => [key, true])));
 });
 
 // ── Account types (spending vs investment) ──
@@ -227,11 +347,13 @@ app.get("/account-types", (req, res) => {
 
 app.post("/account-types", (req, res) => {
   const { bank, type } = req.body;
-  if (!bank || !type) return res.status(400).json({ error: "bank and type required" });
+  if (!validBank(bank) || !["spending", "investment"].includes(type)) {
+    return res.status(400).json({ error: "Valid bank and type required." });
+  }
   const t = loadTokens();
   t._types = t._types || {};
   t._types[bank] = type;
-  fs.writeFileSync(TOKENS_FILE, JSON.stringify(t, null, 2));
+  writePrivateJson(TOKENS_FILE, t);
   res.json({ ok: true });
 });
 
@@ -267,8 +389,8 @@ app.get("/investment-totals", (req, res) => {
 
 // ── Fetch current account balances ──
 app.post("/balances", async (req, res) => {
-  const { access_token } = req.body;
-  if (!access_token) return res.status(400).json({ error: "access_token required" });
+  const access_token = getAccessToken(req.body?.bank);
+  if (!access_token) return res.status(404).json({ error: "Account not found." });
   try {
     const response = await plaid.accountsBalanceGet({ access_token });
     res.json({ accounts: response.data.accounts });
@@ -292,31 +414,27 @@ app.get("/category-overrides", (req, res) => {
 
 app.post("/category-overrides", (req, res) => {
   const { transaction_id, category } = req.body;
-  if (!transaction_id) return res.status(400).json({ error: "transaction_id required" });
+  if (typeof transaction_id !== "string" || !transaction_id || transaction_id.length > 256) {
+    return res.status(400).json({ error: "Valid transaction_id required." });
+  }
+  if (category != null && (typeof category !== "string" || category.length > 80)) {
+    return res.status(400).json({ error: "Invalid category." });
+  }
   const overrides = loadOverrides();
   if (category) {
     overrides[transaction_id] = category;
   } else {
     delete overrides[transaction_id]; // null/undefined category = clear override
   }
-  fs.writeFileSync(OVERRIDES_FILE, JSON.stringify(overrides, null, 2));
+  writePrivateJson(OVERRIDES_FILE, overrides);
   res.json({ ok: true });
-});
-
-// ── Password auth ──
-app.post("/auth", (req, res) => {
-  const { password } = req.body;
-  if (password === process.env.APP_PASSWORD) {
-    res.json({ ok: true });
-  } else {
-    res.status(401).json({ ok: false });
-  }
 });
 
 // ── Start server ──
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`\n✓ Spending Tracker backend running on http://localhost:${PORT}`);
+const HOST = process.env.HOST || "127.0.0.1";
+app.listen(PORT, HOST, () => {
+  console.log(`\n✓ Spending Tracker backend running on http://${HOST}:${PORT}`);
   console.log(`  Environment: ${PLAID_ENV}`);
-  exec(`open http://localhost:${PORT}`); // auto-opens on Mac
+  if (!process.env.SESSION_SECRET) console.warn("  Warning: SESSION_SECRET is unset; using a temporary cookie-signing key.");
 });
