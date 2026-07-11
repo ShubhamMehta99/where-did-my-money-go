@@ -185,8 +185,14 @@ app.post("/investment-transactions", async (req, res) => {
     }
     res.json({ transactions });
   } catch (e) {
-    console.error("investment-transactions error:", e.response?.data || e.message);
-    const errCode = e.response?.data?.error_code || "UNKNOWN";
+    const errData = e.response?.data;
+    const errCode = errData?.error_code || "UNKNOWN";
+    // NO_INVESTMENT_ACCOUNTS is expected when an Item has no brokerage accounts — not a real error
+    if (errCode === "NO_INVESTMENT_ACCOUNTS") {
+      console.warn(`investment-transactions: ${bank || "unknown"} has no investment accounts, skipping.`);
+    } else {
+      console.error("investment-transactions error:", errData || e.message);
+    }
     res.status(500).json({ error: e.message, error_code: errCode });
   }
 });

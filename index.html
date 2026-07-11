@@ -847,7 +847,7 @@
       <div class="topbar-sep"></div>
       <div class="page-tabs">
         <button id="tab-spending" class="page-tab active" onclick="setPage('spending')">Spending</button>
-        <button id="tab-investments" class="page-tab" onclick="setPage('investments')">Investments</button>
+        <button id="tab-investments" class="page-tab" onclick="setPage('investments')">Savings &amp; Investments</button>
       </div>
     </div>
     <div class="topbar-right">
@@ -2145,8 +2145,12 @@ async function loadInvestmentTransactions(force = false) {
         allInvestmentTransactions.push(...data.transactions.map(t => ({ ...t, _bank: acc.name, _isInv: true })));
         gotInvData = true;
       } else if (!res.ok) {
-        // Plaid API error (e.g. INVALID_PRODUCT) — account needs re-link to add investments product
-        investmentRelinkNeeded.add(acc.name);
+        const errCode = data.error_code;
+        // NO_INVESTMENT_ACCOUNTS: this Item simply has no investment accounts; re-linking won't fix it
+        if (errCode !== 'NO_INVESTMENT_ACCOUNTS') {
+          // e.g. INVALID_PRODUCT — investments product not yet authorized, re-link needed
+          investmentRelinkNeeded.add(acc.name);
+        }
       }
       // res.ok but empty array: fall through to regular transactionsGet below
     } catch(e) { /* network error — fall through */ }
