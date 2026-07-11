@@ -78,7 +78,7 @@ function saveCachedTransactions(year, month, bank, transactions) {
   fs.writeFileSync(file, JSON.stringify(cached, null, 2));
 }
 
-// ── 1. Create a link token (frontend calls this first) ──
+// ── 1a. Create a link token for spending accounts (transactions product) ──
 app.post("/create-link-token", async (req, res) => {
   try {
     const response = await plaid.linkTokenCreate({
@@ -91,6 +91,35 @@ app.post("/create-link-token", async (req, res) => {
     res.json({ link_token: response.data.link_token });
   } catch (e) {
     console.error("create-link-token error:", e.response?.data || e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── 1b. Create a link token for investment accounts (investments product) ──
+// If access_token is provided in the body, uses Plaid update mode to ADD the investments
+// product to the existing Item — does NOT create a new connection, safe when near limits.
+app.post("/create-investment-link-token", async (req, res) => {
+  try {
+    const { access_token } = req.body || {};
+    const linkParams = {
+      user: { client_user_id: "personal-dashboard" },
+      client_name: "My Spending Tracker",
+      country_codes: ["US"],
+      language: "en",
+    };
+    if (access_token) {
+      // Update mode: upgrade existing Item to add investments product.
+      // This does NOT count as a new connection.
+      linkParams.access_token = access_token;
+      linkParams.additional_consented_products = ["investments"];
+    } else {
+      // New brokerage link
+      linkParams.products = ["investments"];
+    }
+    const response = await plaid.linkTokenCreate(linkParams);
+    res.json({ link_token: response.data.link_token });
+  } catch (e) {
+    console.error("create-investment-link-token error:", e.response?.data || e.message);
     res.status(500).json({ error: e.message });
   }
 });
@@ -132,7 +161,37 @@ app.post("/transactions", async (req, res) => {
   }
 });
 
-// ── 4. Return cached transactions for a given month ──
+// ── 4. Fetch investment transactions (buy/sell/dividend) from brokerage accounts ──
+app.post("/investment-transactions", async (req, res) => {
+  const { access_token, start_date, end_date, bank } = req.body;
+  if (!access_token) return res.status(400).json({ error: "access_token required" });
+  try {
+    const response = await plaid.investmentsTransactionsGet({
+      access_token,
+      start_date,
+      end_date,
+      options: { count: 500, offset: 0 },
+    });
+    const transactions = response.data.investment_transactions;
+    if (bank && start_date) {
+      const [year, month] = start_date.split("-");
+      const file = getMonthFile(year, month);
+      const cached = loadCachedTransactions(year, month);
+      const invKey = bank + "_inv";
+      const existingMap = new Map((cached[invKey] || []).map(t => [t.investment_transaction_id, t]));
+      transactions.forEach(t => existingMap.set(t.investment_transaction_id, t));
+      cached[invKey] = Array.from(existingMap.values());
+      fs.writeFileSync(file, JSON.stringify(cached, null, 2));
+    }
+    res.json({ transactions });
+  } catch (e) {
+    console.error("investment-transactions error:", e.response?.data || e.message);
+    const errCode = e.response?.data?.error_code || "UNKNOWN";
+    res.status(500).json({ error: e.message, error_code: errCode });
+  }
+});
+
+// ── 5. Return cached transactions for a given month ──
 app.get("/cached-transactions", (req, res) => {
   const { year, month } = req.query;
   if (!year || !month) return res.status(400).json({ error: "year and month required" });
@@ -187,8 +246,11 @@ app.get("/investment-totals", (req, res) => {
       const year = parseInt(match[1]);
       const data = JSON.parse(fs.readFileSync(path.join(DATA_DIR, file), "utf8"));
       invBanks.forEach(bank => {
-        // In Plaid, deposits into a brokerage are credits (amount < 0)
-        const total = (data[bank] || []).filter(tx => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
+        // Regular transactions: deposits are credits (amount < 0)
+        const regTotal = (data[bank] || []).filter(tx => tx.amount < 0).reduce((s, tx) => s + Math.abs(tx.amount), 0);
+        // Investment transactions: contributions/purchases are debits (amount > 0)
+        const invTotal = (data[bank + "_inv"] || []).filter(tx => tx.amount > 0).reduce((s, tx) => s + tx.amount, 0);
+        const total = regTotal + invTotal;
         allTime += total;
         if (year === currentYear) ytd += total;
       });

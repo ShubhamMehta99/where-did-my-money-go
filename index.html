@@ -979,7 +979,7 @@
   <div id="page-investments" style="display:none;">
   <main class="main">
 
-    <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);">
+    <div class="summary-grid" style="grid-template-columns:repeat(2,1fr);">
       <div class="stat-card accent-invest">
         <div class="stat-label">Portfolio Value</div>
         <div class="stat-value" id="inv-portfolio">—</div>
@@ -987,14 +987,6 @@
       <div class="stat-card">
         <div class="stat-label">Invested This Month</div>
         <div class="stat-value" id="inv-month">—</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Year to Date</div>
-        <div class="stat-value" id="inv-ytd">—</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">All Time</div>
-        <div class="stat-value" id="inv-alltime">—</div>
       </div>
     </div>
 
@@ -1268,6 +1260,7 @@ let investmentAccounts = []; // [{ name, token }]
 let spendingAccounts = [];  // [{ name, token }] — dynamic spending accounts beyond amex/chase
 let allInvestmentTransactions = [];
 let investmentBalances = {}; // { bankName: totalBalance }
+let investmentRelinkNeeded = new Set(); // accounts needing re-link for investments product
 let categoryOverrides = {}; // { transaction_id: "CategoryName" } — manual overrides
 
 // All display categories available in the picker (derived from PFC_MAP + extras)
@@ -2006,6 +1999,46 @@ async function linkNewBrokerage() {
   }
 }
 
+// ── RE-LINK an existing investment account to add the investments product ──
+// Uses Plaid update mode (passes existing access_token) so NO new connection is created.
+async function relinkInvestmentAccount(bankKey) {
+  const acc = investmentAccounts.find(a => a.name === bankKey);
+  if (!acc) return;
+  try {
+    // Pass the existing token — server will open Plaid in update mode
+    const res = await fetch(CONFIG.backendUrl + "/create-investment-link-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: acc.token }),
+    });
+    const data = await res.json();
+    if (!data.link_token) { console.error("Re-link token error:", data); return; }
+    const handler = Plaid.create({
+      token: data.link_token,
+      onSuccess: async (publicToken) => {
+        // In update mode, exchange returns the same Item's access_token
+        const ex = await fetch(CONFIG.backendUrl + "/exchange-token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public_token: publicToken, bank: bankKey }),
+        });
+        const exData = await ex.json();
+        // Update token in memory and sessionStorage
+        const idx = investmentAccounts.findIndex(a => a.name === bankKey);
+        if (idx >= 0) investmentAccounts[idx].token = exData.access_token;
+        sessionStorage.setItem("tok_" + bankKey, exData.access_token);
+        investmentRelinkNeeded.delete(bankKey);
+        renderInvestmentAccounts();
+        loadInvestmentTransactions(true);
+        loadInvestmentTotals();
+        loadInvestmentBalances();
+      },
+      onExit: () => {},
+    });
+    handler.open();
+  } catch(e) { console.error("relinkInvestmentAccount error:", e); }
+}
+
 // ── INVESTMENT ACCOUNT CARDS ──
 function formatBankName(key) {
   return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
@@ -2019,14 +2052,18 @@ function renderInvestmentAccounts() {
   row.innerHTML = investmentAccounts.map(acc => {
     const bal = investmentBalances[acc.name];
     const statusText = bal != null ? `Connected · $${fmt(bal)}` : "Connected";
+    const needsRelink = investmentRelinkNeeded.has(acc.name);
     return `
       <div class="connect-card">
         <div class="bank-badge badge-invest">${escapeHtml(acc.name.substring(0, 4).toUpperCase())}</div>
         <div class="connect-info">
           <div class="connect-name">${escapeHtml(formatBankName(acc.name))}</div>
-          <div class="connect-status connected">${escapeHtml(statusText)}</div>
+          <div class="connect-status ${needsRelink ? 'text-yellow-500' : 'connected'}">${needsRelink ? '⚠ Re-link required' : escapeHtml(statusText)}</div>
         </div>
-        <button class="connect-btn connected">✓ Linked</button>
+        ${needsRelink
+          ? `<button class="connect-btn" style="background:rgba(200,133,74,0.15);color:#c8854a;border-color:rgba(200,133,74,0.3);" onclick="relinkInvestmentAccount('${escapeHtml(acc.name)}')">Re-link →</button>`
+          : `<button class="connect-btn connected">✓ Linked</button>`
+        }
       </div>`;
   }).join("");
 }
@@ -2064,6 +2101,7 @@ async function loadInvestmentTransactions(force = false) {
   if (investmentAccounts.length === 0) { renderInvestmentTxnList([]); return; }
 
   allInvestmentTransactions = [];
+  investmentRelinkNeeded.clear(); // reset stale flags each load
   const now = currentDate;
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
@@ -2079,7 +2117,11 @@ async function loadInvestmentTransactions(force = false) {
       const cached = await res.json();
       let hasData = false;
       for (const acc of investmentAccounts) {
-        if (cached[acc.name]?.length > 0) {
+        const invKey = acc.name + "_inv";
+        if (cached[invKey]?.length > 0) {
+          allInvestmentTransactions.push(...cached[invKey].map(t => ({ ...t, _bank: acc.name, _isInv: true })));
+          hasData = true;
+        } else if (cached[acc.name]?.length > 0) {
           allInvestmentTransactions.push(...cached[acc.name].map(t => ({ ...t, _bank: acc.name })));
           hasData = true;
         }
@@ -2089,27 +2131,57 @@ async function loadInvestmentTransactions(force = false) {
   }
 
   for (const acc of investmentAccounts) {
+    // Try investment transactions endpoint first (requires investments product)
+    let gotInvData = false;
     try {
-      const res = await fetch(CONFIG.backendUrl + "/transactions", {
+      const res = await fetch(CONFIG.backendUrl + "/investment-transactions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name }),
       });
       const data = await res.json();
-      if (data.transactions) allInvestmentTransactions.push(...data.transactions.map(t => ({ ...t, _bank: acc.name })));
-    } catch(e) { console.error("Error fetching investment txns for", acc.name, e); }
+      if (res.ok && data.transactions?.length > 0) {
+        // Got real investment transactions
+        allInvestmentTransactions.push(...data.transactions.map(t => ({ ...t, _bank: acc.name, _isInv: true })));
+        gotInvData = true;
+      } else if (!res.ok) {
+        // Plaid API error (e.g. INVALID_PRODUCT) — account needs re-link to add investments product
+        investmentRelinkNeeded.add(acc.name);
+      }
+      // res.ok but empty array: fall through to regular transactionsGet below
+    } catch(e) { /* network error — fall through */ }
+
+    if (!gotInvData) {
+      // Fall back to regular transactions (deposits, withdrawals, fees)
+      try {
+        const res = await fetch(CONFIG.backendUrl + "/transactions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: acc.token, start_date: start, end_date: end, bank: acc.name }),
+        });
+        const data = await res.json();
+        if (data.transactions?.length > 0) {
+          allInvestmentTransactions.push(...data.transactions.map(t => ({ ...t, _bank: acc.name })));
+          investmentRelinkNeeded.delete(acc.name); // regular txns found, no re-link needed
+        }
+        // If both sources returned nothing, re-link flag (set above) stays on
+      } catch(e) { console.error("Error fetching investment txns for", acc.name, e); }
+    }
   }
 
+  renderInvestmentAccounts(); // refresh cards to show/hide re-link buttons
   renderInvestmentTxnList(allInvestmentTransactions);
   updateInvestmentMonthTotal();
 }
 
 function updateInvestmentMonthTotal() {
   const m = currentDate.getMonth(), y = currentDate.getFullYear();
-  // In Plaid, deposits into a brokerage (credits) are amount < 0
   const filtered = allInvestmentTransactions.filter(t => {
     const d = new Date(t.date + 'T00:00:00');
-    return d.getMonth() === m && d.getFullYear() === y && t.amount < 0;
+    if (d.getMonth() !== m || d.getFullYear() !== y) return false;
+    // Investment txns (buy/sell): amount > 0 is money out (purchase)
+    // Regular txns (deposits): amount < 0 is money in (credit)
+    return t._isInv ? t.amount > 0 : t.amount < 0;
   });
   const total = filtered.reduce((s, t) => s + Math.abs(t.amount), 0);
   const el = document.getElementById("inv-month");
@@ -2156,14 +2228,21 @@ function renderInvestmentTxnList(transactions) {
     const bankLabel = escapeHtml(formatBankName(t._bank));
     const shortTag  = escapeHtml(t._bank.substring(0, 5).toUpperCase());
     const dateStr   = new Date(t.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const typeLabel = t._isInv && t.subtype
+      ? escapeHtml(t.subtype.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+      : bankLabel;
+    const amtColor  = t._isInv
+      ? (t.amount > 0 ? "#c0604a" : "#7db898")
+      : "#a78bfa";
+    const amtPrefix = t._isInv && t.amount < 0 ? "+" : "";
     return `
       <div class="txn-row">
         <div class="txn-icon badge-invest">💼</div>
         <div class="txn-name">${name}</div>
         <span class="txn-card-badge badge-invest">${shortTag}</span>
         <div class="txn-meta">
-          <div class="txn-amount" style="color:#a78bfa;">$${Math.abs(t.amount).toFixed(2)}</div>
-          <div class="txn-cat">${bankLabel}</div>
+          <div class="txn-amount" style="color:${amtColor};">${amtPrefix}$${Math.abs(t.amount).toFixed(2)}</div>
+          <div class="txn-cat">${typeLabel}</div>
           <div class="txn-date">${dateStr}</div>
         </div>
       </div>`;
