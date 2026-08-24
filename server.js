@@ -151,8 +151,9 @@ function loadCachedTransactions(year, month) {
 function saveCachedTransactions(year, month, bank, transactions) {
   const file = getMonthFile(year, month);
   const cached = loadCachedTransactions(year, month);
-  // Deduplicate by transaction_id — new data wins
-  const existingMap = new Map((cached[bank] || []).map(t => [t.transaction_id, t]));
+  // Each fetch covers the full month, so Plaid's response is authoritative.
+  // Replacing the account slice also removes transactions corrected upstream.
+  const existingMap = new Map();
   transactions.forEach(t => existingMap.set(t.transaction_id, t));
   // Remove pending transactions that have been superseded by a posted transaction.
   // When Plaid settles a pending tx it creates a new transaction_id and sets
